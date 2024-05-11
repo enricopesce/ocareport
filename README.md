@@ -1,7 +1,7 @@
 
 # Oracle capacity report (ocareport)
 
-A brief description of what this project does and who it's for.
+An easy tool to verify the availability of compute resources over OCI regions.
 
 ## Table of Contents
 
@@ -20,77 +20,41 @@ A brief description of what this project does and who it's for.
 
 ## Overview
 
-This project is a simple demonstration of how to create a basic project on GitHub. It showcases basic functionality and serves as a template for future projects. The goal is to help users understand the structure of a typical project and how to set it up.
+This project is a modification of GitHub project [OCI_ComputeCapacityReport](https://github.com/Olygo/OCI_ComputeCapacityReport) displays a report of the compute host capacity on the OCI provider. 
+
+Is it useful to plan the implementation of the resources, identify if the specific shape is available, and if the resources needed are available.
 
 ## Features
 
-- Simple project structure
-- Basic functionality demonstration
-- Easy to follow instructions
+- Automatic authentication based on local oci auth configured
+- Search by single region or all subscribed regions
+- Search by OCPU and MEMORY for Flex shapes
 
 ## Installation
 
-Instructions on how to install and set up the project locally.
-
 ### Prerequisites
 
-List any prerequisites for the project, such as software or libraries that need to be installed beforehand.
+The project require only a recent Python and OCI CLI [configured](https://docs.oracle.com/en-us/iaas/Content/API/SDKDocs/cliinstall.htm) 
 
-\`\`\`bash
-# Example
-pip install xyz
-\`\`\`
-
-### Installing
-
-Step-by-step instructions on how to get the development environment running.
-
-\`\`\`bash
-# Clone the repository
-git clone https://github.com/your_username/project_name.git
-
-# Navigate to the project directory
-cd project_name
-
-# Install dependencies
-npm install
-# or
-pip install -r requirements.txt
-\`\`\`
-
+```console
+pip install -r requirements
+```
 ## Usage
 
-Instructions on how to use the project, with examples.
+Verify availability of BM.Standard.E4.128 shapes on all subscribed regions
 
-\`\`\`bash
-# Example command
-python main.py
-\`\`\`
+```console
+python ocareport.py -s BM.Standard.E4.128
+```
 
-Include screenshots or code examples if applicable.
+Verify availability of VM.Standard.E5.Flex shapes on Milan region for 24 OCPUS and 512 GB MEMORY
 
-## Contributing
-
-Guidelines for contributing to the project.
-
-1. Fork the repository.
-2. Create your feature branch (\`git checkout -b feature/AmazingFeature\`).
-3. Commit your changes (\`git commit -m 'Add some AmazingFeature'\`).
-4. Push to the branch (\`git push origin feature/AmazingFeature\`).
-5. Open a pull request.
-
-## License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## Acknowledgements
-
-- Inspiration
-- References
-- Tutorials
+```console
+python ocareport.py -s VM.Standard.E5.Flex -r eu-milan-1 -O 24 -M 512
+```
 
 ## Contact
 
-Your Name - [@YourTwitterHandle](https://twitter.com/YourTwitterHandle) - your.email@example.com
+Enrico Pesce - [@Linkedin](https://www.linkedin.com/in/enricopesce/) - [@Blog](https://www.enricopesce.it/)
 
-Project Link: [https://github.com/your_username/project_name](https://github.com/your_username/project_name)
+Project Link: [https://github.com/enricopesce/ocareport](https://github.com/enricopesce/ocareport)
