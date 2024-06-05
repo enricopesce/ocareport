@@ -5,18 +5,11 @@ An easy tool to verify the availability of compute resources over OCI regions.
 
 ## Table of Contents
 
-- [Simple Project](#simple-project)
-  - [Table of Contents](#table-of-contents)
-  - [Overview](#overview)
-  - [Features](#features)
-  - [Installation](#installation)
-    - [Prerequisites](#prerequisites)
-    - [Installing](#installing)
-  - [Usage](#usage)
-  - [Contributing](#contributing)
-  - [License](#license)
-  - [Acknowledgements](#acknowledgements)
-  - [Contact](#contact)
+- [Overview](#overview)
+- [Features](#features)
+- [Installation](#installation)
+- [Usage](#usage)
+- [Contact](#contact)
 
 ## Overview
 
@@ -31,8 +24,6 @@ Is it useful to plan the implementation of the resources, identify if the specif
 - Search by OCPU and MEMORY for Flex shapes
 
 ## Installation
-
-### Prerequisites
 
 The project require only a recent Python and OCI CLI [configured](https://docs.oracle.com/en-us/iaas/Content/API/SDKDocs/cliinstall.htm) 
 
