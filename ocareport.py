@@ -1,158 +1,70 @@
-import oci
-import os.path
-import os
+# coding: utf-8
+"""
+OCI Compute Capacity Report Tool
+
+Check compute shape availability across OCI regions, availability domains,
+and fault domains using the Compute Capacity Report API.
+"""
+
 import argparse
+import oci
+from rich import box
 from rich.console import Console
 from rich.table import Table
-from rich import box
-from rich.style import Style
-from rich.progress import Progress
+
+from modules.utils import green, yellow, print_info, clear
+from modules.identity import (
+    init_authentication,
+    get_region_subscription_list,
+    get_availability_domains,
+    get_fault_domains
+)
+
+VERSION = '1.1.0'
 
 
 def parse_arguments():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('-cs', action='store_true', default=False, dest='is_delegation_token',
-                        help='Use CloudShell Delegation Token for authentication')
-    parser.add_argument('-cf', action='store_true', default=False, dest='is_config_file',
-                        help='Use local OCI config file for authentication')
-    parser.add_argument('-cfp', default='~/.oci/config', dest='config_file_path',
-                        help='Path to your OCI config file, default: ~/.oci/config')
-    parser.add_argument('-cp', default='DEFAULT', dest='config_profile',
-                        help='Config file section to use, default: DEFAULT')    
-    parser.add_argument('-r', default='', dest='region',
-                        help='Define regions to analyze, default is all regions')
-    parser.add_argument('-s', default='', dest='shape', required=True,
-                        help='Specify shape name')
-    parser.add_argument('-O', default='1', dest='ocpu', required=False,
-                        help='Specify ocpu number for flex instances')
-    parser.add_argument('-M', default='1', dest='memory', required=False,
-                        help='Specify memory quantity in GB for flex instances')
+    """Parse command line arguments."""
+    parser = argparse.ArgumentParser(
+        description='Check OCI compute shape availability across regions'
+    )
+
+    # Authentication options
+    parser.add_argument('-auth', default='', dest='auth_method',
+                        choices=['cs', 'cf', 'ip', ''],
+                        help="Authentication method: 'cs' (CloudShell), 'cf' (config file), 'ip' (instance principals)")
+    parser.add_argument('-config_file', default='~/.oci/config', dest='config_file_path',
+                        help='Path to OCI config file (default: ~/.oci/config)')
+    parser.add_argument('-profile', default='DEFAULT', dest='config_profile',
+                        help='Config file profile section (default: DEFAULT)')
+
+    # Query options
+    parser.add_argument('-region', default='', dest='region',
+                        help="Region to analyze: specific region name, 'all' for all regions, or empty for home region")
+    parser.add_argument('-shape', default='', dest='shape', required=True,
+                        help='Compute shape name to check (required)')
+    parser.add_argument('-ocpus', type=float, default=1, dest='ocpu',
+                        help='OCPU count for flex shapes (default: 1)')
+    parser.add_argument('-memory', type=float, default=1, dest='memory',
+                        help='Memory in GB for flex shapes (default: 1)')
 
     return parser.parse_args()
 
 
-def get_tenancy(tenancy_id, config, signer):
+def create_capacity_report(core_client, compartment_id, availability_domain,
+                           fault_domain, shape, is_flex=False, ocpu=1.0, memory=1.0):
+    """
+    Query the Compute Capacity Report API for shape availability.
 
-    identity = oci.identity.IdentityClient(config=config, signer=signer)
-    try:
-        tenancy = identity.get_tenancy(tenancy_id)
-        home_region_key = f'home region: {tenancy.data.home_region_key}'
-    except oci.exceptions.ServiceError as e:
-        console.print("Tenancy error:", tenancy_id, e.code, e.message)
-        raise SystemExit(1)
+    Returns: availability_status string ('AVAILABLE', 'HARDWARE_NOT_SUPPORTED', 'OUT_OF_HOST_CAPACITY')
+    """
+    shape_config = None
+    if is_flex:
+        shape_config = oci.core.models.CapacityReportInstanceShapeConfig(
+            ocpus=ocpu,
+            memory_in_gbs=memory
+        )
 
-    return tenancy.data.name, home_region_key
-
-
-def create_signer(config_file_path, config_profile, is_delegation_token, is_config_file):
-
-    custom_retry_strategy = oci.retry.RetryStrategyBuilder(
-                                max_attempts_check=True,
-                                max_attempts=3,
-                                total_elapsed_time_check=True,
-                                total_elapsed_time_seconds=20,
-                                retry_max_wait_between_calls_seconds=5,
-                                retry_base_sleep_time_seconds=2,
-                                ).get_retry_strategy()    
-
-    # --------------------------------
-    # Config File authentication
-    # --------------------------------
-    if is_config_file:
-        try:
-            config = oci.config.from_file(file_location=config_file_path, profile_name=config_profile)
-            oci.config.validate_config(config) # raise an error if error in config
-
-            signer = oci.signer.Signer(
-                tenancy=config['tenancy'],
-                user=config['user'],
-                fingerprint=config['fingerprint'],
-                private_key_file_location=config.get('key_file'),
-                pass_phrase=oci.config.get_config_value_or_default(config, 'pass_phrase'),
-                private_key_content=config.get('key_content')
-            )
-            # try getting namespace to validate config
-            oci.object_storage.ObjectStorageClient(config=config, signer=signer).get_namespace()
-
-            console.print('Login', 'success', 'config_file')
-            console.print('Login', 'profile', config_profile)
-
-            oci_tname, oci_tregion = get_tenancy(config['tenancy'], config, signer)
-            console.print('Tenancy', oci_tname, oci_tregion)
-
-            return config, signer, oci_tname
-
-        except oci.exceptions.ServiceError as e:
-            console.print("Something went wrong with file content:", config_file_path, config_profile, e.code, e.message)
-            raise SystemExit(1)
-
-        except Exception as e:
-            console.print(e)
-            raise SystemExit(1)
-    
-    # --------------------------------
-    # Delegation Token authentication
-    # --------------------------------
-    elif is_delegation_token:
-
-        try:
-            env_config_file = os.environ.get('OCI_CONFIG_FILE')
-            env_config_section = os.environ.get('OCI_CONFIG_PROFILE')
-            config = oci.config.from_file(env_config_file, env_config_section)
-            delegation_token_location = config['delegation_token_file']
-            oci.config.validate_config(config) # raise an error if error in config
-
-            with open(delegation_token_location, 'r') as delegation_token_file:
-                delegation_token = delegation_token_file.read().strip()
-                signer = oci.auth.signers.InstancePrincipalsDelegationTokenSigner(delegation_token=delegation_token)
-
-            # try getting namespace to validate config
-            oci.object_storage.ObjectStorageClient(config=config, signer=signer).get_namespace()
-
-            console.print('Login', 'success', 'delegation_token')
-            console.print('Login', 'token', delegation_token_location)
-
-            oci_tname, oci_tregion = get_tenancy(config['tenancy'], config, signer)
-            console.print('Tenancy', oci_tname, oci_tregion)
-
-            return config, signer, oci_tname
-
-        except oci.exceptions.ServiceError as e:
-            console.print("CloudShell authentication error:", e)
-            raise SystemExit(1)
-        
-        except Exception as e:
-            console.print("CloudShell authentication error:", e)
-            raise SystemExit(1)
-        
-    # -----------------------------------
-    # Instance Principals authentication
-    # -----------------------------------
-    else:
-        try:
-            signer = oci.auth.signers.InstancePrincipalsSecurityTokenSigner(retry_strategy=custom_retry_strategy)
-            config = {'region': signer.region, 'tenancy': signer.tenancy_id}
-          
-            oci_tname, oci_tregion = get_tenancy(config['tenancy'], config, signer)
-
-            # try getting namespace to validate config
-            oci.object_storage.ObjectStorageClient(config=config, signer=signer).get_namespace()
-
-            console.print('Login', 'success', 'instance_principals')
-            console.print('Tenancy', oci_tname, oci_tregion)
-
-            return config, signer, oci_tname
-
-        except oci.exceptions.ServiceError as e:
-            console.print("Instance_Principals authentication error:", e)
-            raise SystemExit(1)
-
-        except Exception as e:
-            console.print("Instance Principals authentication error:", e)
-            raise SystemExit(1)
-        
-
-def create_and_print_report(core_client, compartment_id, availability_domain, fault_domain, shape, is_flex=False, ocpu=1.0, memory=1.0):
     report_details = oci.core.models.CreateComputeCapacityReportDetails(
         compartment_id=compartment_id,
         availability_domain=availability_domain,
@@ -160,131 +72,101 @@ def create_and_print_report(core_client, compartment_id, availability_domain, fa
             oci.core.models.CreateCapacityReportShapeAvailabilityDetails(
                 instance_shape=shape,
                 fault_domain=fault_domain,
-                instance_shape_config=oci.core.models.CapacityReportInstanceShapeConfig(
-                    ocpus=ocpu,
-                    memory_in_gbs=memory) if is_flex else None)])
+                instance_shape_config=shape_config
+            )
+        ]
+    )
 
-    try:
-        report = core_client.create_compute_capacity_report(
-            create_compute_capacity_report_details=report_details)
-    except oci.exceptions.ServiceError as e:
-        console.print("error:", cmd.shape, e.message)
-        console.print("please check shape names:",
-                      "https://docs.oracle.com/en-us/iaas/Content/Compute/References/computeshapes.htm")
-        raise SystemExit(1)
+    report = core_client.create_compute_capacity_report(
+        create_compute_capacity_report_details=report_details
+    )
 
-    for result in report.data.shape_availabilities:
-        if result.availability_status == "AVAILABLE":
-            table.add_row(region.region_name, oci_ad, oci_fd, cmd.shape,
-                          result.availability_status, style='green')
-        else:
-            table.add_row(region.region_name, oci_ad, oci_fd, cmd.shape,
-                          result.availability_status,  style='red')
+    return report.data.shape_availabilities[0].availability_status
 
 
-def get_region_subscription_list(identity_client, tenancy_id, region):
-    try:
-        subscribed_regions = identity_client.list_region_subscriptions(
-            tenancy_id).data
+def main():
+    """Main entry point."""
+    clear()
+    console = Console()
+    args = parse_arguments()
 
-        region_map = {
-            region.region_name: region for region in subscribed_regions}
+    # Print banner
+    print(green(f"\n{'*'*94}"))
+    print_info(green, 'Script', 'version', VERSION)
 
-        if region:
-            region = region_map.get(region.lower())
-            if region:
-                subscribed_region = []
-                subscribed_region.append(region)
-                return subscribed_region
-            else:
-                console.print("Region error:", tenancy_id, region,
-                              "Region not subscribed or does not exist")
-                raise SystemExit(1)
+    # Initialize authentication
+    config, signer, tenancy, auth_name, details, tenancy_id = init_authentication(
+        args.auth_method,
+        args.config_file_path,
+        args.config_profile
+    )
 
-    except oci.exceptions.ServiceError as e:
-        console.print("Region error:", tenancy_id, region, e)
-        raise SystemExit(1)
+    # Clear any auth progress messages
+    print("\r" + " " * 60 + "\r", end='', flush=True)
 
-    return subscribed_regions
+    print_info(green, 'Login', 'success', auth_name)
+    print_info(green, 'Login', 'profile', details)
+    print_info(green, 'Tenancy', tenancy.name, f'home region: {tenancy.home_region_key}')
 
+    # Initialize identity client
+    identity_client = oci.identity.IdentityClient(config=config, signer=signer)
 
-def get_availability_domains(identity_client, compartment_id):
-    oci_ads = []
-    availability_domains = oci.pagination.list_call_get_all_results(
-        identity_client.list_availability_domains,
-        compartment_id).data
+    # Get regions to analyze
+    regions = get_region_subscription_list(
+        identity_client,
+        tenancy_id,
+        args.region
+    )
 
-    for ad in availability_domains:
-        oci_ads.append(ad.name)
+    # Print shape info
+    print_info(green, 'Shape', 'analyzed', args.shape)
+    if 'Flex' in args.shape or 'flex' in args.shape:
+        print_info(green, 'OCPUs', 'amount', f'{args.ocpu} cores')
+        print_info(green, 'Memory', 'amount', f'{args.memory} GB')
 
-    return oci_ads
+    print(green(f"{'*'*94}\n"))
 
+    # Create results table
+    table = Table(
+        title=f"Shape: {args.shape} | OCPU: {args.ocpu} | Memory: {args.memory} GB",
+        box=box.MARKDOWN
+    )
+    table.add_column("REGION", justify="left")
+    table.add_column("AVAILABILITY DOMAIN", justify="left")
+    table.add_column("FAULT DOMAIN", justify="left")
+    table.add_column("SHAPE", justify="left")
+    table.add_column("STATUS", justify="left")
 
-def get_fault_domains(identity_client, compartment_id, availability_domain):
-    oci_fds = []
-    fault_domains = oci.pagination.list_call_get_all_results(
-        identity_client.list_fault_domains,
-        compartment_id, availability_domain).data
+    is_flex = 'Flex' in args.shape or 'flex' in args.shape
 
-    for fd in fault_domains:
-        oci_fds.append(fd.name)
+    # Query each region/AD/FD combination
+    for region in regions:
+        config['region'] = region.region_name
+        identity_client = oci.identity.IdentityClient(config=config, signer=signer)
+        core_client = oci.core.ComputeClient(config=config, signer=signer)
 
-    return oci_fds
+        ads = get_availability_domains(identity_client, tenancy_id)
+
+        for ad in ads:
+            fds = get_fault_domains(identity_client, tenancy_id, ad)
+
+            for fd in fds:
+                try:
+                    status = create_capacity_report(
+                        core_client, tenancy_id, ad, fd,
+                        args.shape, is_flex, args.ocpu, args.memory
+                    )
+
+                    style = 'green' if status == 'AVAILABLE' else 'red'
+                    table.add_row(region.region_name, ad, fd, args.shape, status, style=style)
+
+                except oci.exceptions.ServiceError as e:
+                    console.print(f"[red]Error:[/red] {args.shape} - {e.message}")
+                    console.print("Check shape names: https://docs.oracle.com/en-us/iaas/Content/Compute/References/computeshapes.htm")
+                    raise SystemExit(1)
+
+    console.print(table)
 
 
 if __name__ == '__main__':
-    script_path = os.path.abspath(__file__)
-    script_name = (os.path.basename(script_path))[:-3]
-
-    console = Console()
-
-    progress = Progress()
-
-    cmd = parse_arguments()
-
-    table = Table(title="Shape analyzed: " + cmd.shape + " OCPU: " +
-                  cmd.ocpu + " MEMORY: " + cmd.memory, box=box.MARKDOWN)
-
-    table.add_column("REGION", justify="left")
-    table.add_column("AVAILABILITY DOMAIN", justify="left")
-    table.add_column("FAULT DOMAIN",  justify="left")
-    table.add_column("SHAPE", justify="left")
-    table.add_column("AVAILABILITY", justify="left")
-
-    config, signer, oci_tname=create_signer(cmd.config_file_path, 
-                                            cmd.config_profile, 
-                                            cmd.is_delegation_token, 
-                                            cmd.is_config_file)
- 
-    identity_client = oci.identity.IdentityClient(config, signer=signer)
-    compute_client = oci.core.ComputeClient(config, signer=signer)
-
-    identity_client = oci.identity.IdentityClient(
-        config=config,
-        signer=signer)
-
-    my_regions = get_region_subscription_list(
-        identity_client,
-        signer.tenancy_id,
-        cmd.region)
-
-    for region in my_regions:
-
-        config['region'] = region.region_name
-
-        identity_client = oci.identity.IdentityClient(
-            config=config, signer=signer)
-        core_client = oci.core.ComputeClient(config=config, signer=signer)
-
-        oci_ads = get_availability_domains(identity_client, signer.tenancy_id)
-
-        for oci_ad in oci_ads:
-            oci_fds = get_fault_domains(
-                identity_client, signer.tenancy_id, oci_ad)
-
-            for oci_fd in oci_fds:
-                is_flex = "Flex" in cmd.shape
-                create_and_print_report(
-                    core_client, signer.tenancy_id, oci_ad, oci_fd, cmd.shape, is_flex, float(cmd.ocpu), float(cmd.memory))
-
-    console.print(table)
+    main()
