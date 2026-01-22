@@ -1,0 +1,103 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ocareport"
+version = "1.1.0"
+description = "CLI tool to check Oracle Cloud Infrastructure (OCI) compute shape availability across regions, availability domains, and fault domains"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.8"
+authors = [
+    {name = "Enrico Pesce", email = "enrico@enricopesce.it"}
+]
+maintainers = [
+    {name = "Enrico Pesce", email = "enrico@enricopesce.it"}
+]
+keywords = [
+    # Primary keywords
+    "oci",
+    "oracle-cloud",
+    "oracle-cloud-infrastructure",
+    "cloud",
+    "compute",
+    "capacity",
+    "availability",
+    # Shape/Instance related
+    "gpu",
+    "vm",
+    "bare-metal",
+    "instance",
+    "shapes",
+    "flex-shapes",
+    # Use case keywords
+    "capacity-planning",
+    "capacity-report",
+    "resource-availability",
+    "infrastructure",
+    "devops",
+    "cloud-computing",
+    # Technical keywords
+    "cli",
+    "command-line",
+    "api",
+    "sdk",
+    # GPU specific (high search volume)
+    "nvidia",
+    "a100",
+    "h100",
+    "gpu-availability",
+    "gpu-cloud"
+]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
+    "Intended Audience :: Information Technology",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: System :: Systems Administration",
+    "Topic :: Utilities",
+    "Topic :: Internet",
+    "Typing :: Typed"
+]
+dependencies = [
+    "oci>=2.149.0",
+    "rich>=13.9.4"
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3.4"
+]
+
+[project.urls]
+Homepage = "https://github.com/enricopesce/ocareport"
+Documentation = "https://github.com/enricopesce/ocareport#readme"
+Repository = "https://github.com/enricopesce/ocareport.git"
+Issues = "https://github.com/enricopesce/ocareport/issues"
+Changelog = "https://github.com/enricopesce/ocareport/blob/main/CHANGELOG.md"
+
+[project.scripts]
+ocareport = "ocareport:main"
+
+[tool.setuptools]
+packages = ["modules"]
+py-modules = ["ocareport"]
+
+[tool.setuptools.package-data]
+"*" = ["*.md"]
+
+[tool.pytest.ini_options]
+testpaths = ["test_ocareport.py"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+addopts = "-v"

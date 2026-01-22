@@ -1,33 +1,61 @@
 # OCI Compute Capacity Report (ocareport)
 
-**Check the availability of any compute shape across OCI regions!**
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![OCI SDK](https://img.shields.io/badge/OCI%20SDK-2.149.0+-orange.svg)](https://oracle-cloud-infrastructure-python-sdk.readthedocs.io/)
+[![Tests](https://github.com/enricopesce/ocareport/actions/workflows/ci.yml/badge.svg)](https://github.com/enricopesce/ocareport/actions/workflows/ci.yml)
 
-Easily find out which regions offer compute shapes like VM.Standard.E5.Flex, GPU shapes, or bare metal instances. The tool provides availability status down to the Fault Domain level.
+**Check Oracle Cloud Infrastructure compute shape availability across all regions instantly.**
 
-**Version: 1.1.0**
+A command-line tool that queries the OCI Compute Capacity Report API to find available compute resources including VMs, bare metal instances, and GPU shapes (NVIDIA A100, H100, A10, L40S) across regions, availability domains, and fault domains.
 
-## Output Status Meanings
+## Features
 
-- **AVAILABLE** - The capacity for the specified shape is currently available
-- **HARDWARE_NOT_SUPPORTED** - The necessary hardware has not yet been deployed in this region
-- **OUT_OF_HOST_CAPACITY** - Additional hardware is currently being deployed in this region
+- **Multi-Region Support** - Check capacity in your home region, a specific region, or all subscribed regions at once
+- **Flexible Authentication** - Auto-detects CloudShell, config file, or Instance Principals authentication
+- **Granular Results** - Shows availability down to the Fault Domain level
+- **Flex Shape Support** - Specify custom OCPU and memory configurations
+- **GPU Discovery** - Find available GPU instances (A100, H100, A10, V100, L40S) across OCI
+- **Rich Output** - Color-coded terminal output with formatted tables
 
 ## Quick Start
 
 ```bash
+# Install dependencies
 pip install -r requirements.txt
+
+# Check shape availability in your home region
 python ocareport.py -shape VM.Standard.E5.Flex
+
+# Check GPU availability across all regions
+python ocareport.py -shape BM.GPU.H100.8 -region all
 ```
 
-## Table of Contents
+## Installation
 
-- [How It Works](#how-it-works)
-- [Authentication Methods](#authentication-methods)
-- [Command Line Options](#command-line-options)
-- [Usage Examples](#usage-examples)
-- [Setup for Instance Principals](#setup-for-instance-principals)
-- [Running Tests](#running-tests)
-- [Common GPU Shapes](#common-gpu-shapes)
+### From Source
+
+```bash
+git clone https://github.com/enricopesce/ocareport.git
+cd ocareport
+pip install -r requirements.txt
+```
+
+### Using pip (editable mode)
+
+```bash
+git clone https://github.com/enricopesce/ocareport.git
+cd ocareport
+pip install -e .
+```
+
+## Output Status Meanings
+
+| Status | Description |
+|--------|-------------|
+| **AVAILABLE** | The capacity for the specified shape is currently available |
+| **HARDWARE_NOT_SUPPORTED** | The necessary hardware has not yet been deployed in this region |
+| **OUT_OF_HOST_CAPACITY** | Additional hardware is currently being deployed in this region |
 
 ## How It Works
 
@@ -124,26 +152,26 @@ Create a policy in the root compartment:
 allow dynamic-group 'YourDomain'/'OCI_Scripting' to read all-resources in tenancy
 ```
 
+## Common GPU Shapes
+
+| Shape | GPU | Count | Use Case |
+|-------|-----|-------|----------|
+| `VM.GPU.A10.1` | NVIDIA A10 | 1 | AI inference, graphics |
+| `VM.GPU.A10.2` | NVIDIA A10 | 2 | AI inference, graphics |
+| `VM.GPU3.1` | NVIDIA V100 | 1 | Deep learning, HPC |
+| `VM.GPU3.2` | NVIDIA V100 | 2 | Deep learning, HPC |
+| `VM.GPU3.4` | NVIDIA V100 | 4 | Deep learning, HPC |
+| `BM.GPU4.8` | NVIDIA A100 40GB | 8 | Large AI models, HPC |
+| `BM.GPU.A100-v2.8` | NVIDIA A100 80GB | 8 | LLM training, large models |
+| `BM.GPU.H100.8` | NVIDIA H100 | 8 | Frontier AI, LLM training |
+| `BM.GPU.L40S.4` | NVIDIA L40S | 4 | AI inference, rendering |
+
 ## Running Tests
 
 ```bash
 pip install -r requirements.txt
 pytest test_ocareport.py -v
 ```
-
-## Common GPU Shapes
-
-| Shape | GPU | Count |
-|-------|-----|-------|
-| `VM.GPU.A10.1` | NVIDIA A10 | 1 |
-| `VM.GPU.A10.2` | NVIDIA A10 | 2 |
-| `VM.GPU3.1` | NVIDIA V100 | 1 |
-| `VM.GPU3.2` | NVIDIA V100 | 2 |
-| `VM.GPU3.4` | NVIDIA V100 | 4 |
-| `BM.GPU4.8` | NVIDIA A100 40GB | 8 |
-| `BM.GPU.A100-v2.8` | NVIDIA A100 80GB | 8 |
-| `BM.GPU.H100.8` | NVIDIA H100 | 8 |
-| `BM.GPU.L40S.4` | NVIDIA L40S | 4 |
 
 ## Project Structure
 
@@ -156,9 +184,20 @@ ocareport/
 │   └── utils.py          # Terminal colors and formatting
 ├── test_ocareport.py     # Unit tests
 ├── requirements.txt      # Python dependencies
+├── pyproject.toml        # Package configuration
+├── LICENSE               # MIT License
 ├── README.md             # This file
-└── CLAUDE.md             # AI assistant instructions
+├── CHANGELOG.md          # Version history
+└── CONTRIBUTING.md       # Contribution guidelines
 ```
+
+## Contributing
+
+Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ## Credits
 
@@ -169,3 +208,7 @@ Inspired by [OCI_ComputeCapacityReport](https://github.com/Olygo/OCI_ComputeCapa
 Enrico Pesce - [@LinkedIn](https://www.linkedin.com/in/enricopesce/) - [@Blog](https://www.enricopesce.it/)
 
 Project Link: [https://github.com/enricopesce/ocareport](https://github.com/enricopesce/ocareport)
+
+---
+
+**Keywords:** OCI, Oracle Cloud Infrastructure, compute capacity, GPU availability, NVIDIA A100, NVIDIA H100, cloud computing, capacity planning, DevOps, CLI tool
