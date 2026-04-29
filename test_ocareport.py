@@ -83,6 +83,14 @@ class TestParseArguments:
             assert args.ocpu == 24.0
             assert args.memory == 512.0
 
+    @pytest.mark.parametrize('option', ['-ocpus', '-memory'])
+    @pytest.mark.parametrize('value', ['0', '-1'])
+    def test_flex_resource_options_must_be_positive(self, option, value):
+        """Test -ocpus and -memory reject zero or negative values."""
+        with pytest.raises(SystemExit):
+            with mock.patch.object(sys, 'argv', ['ocareport.py', '-shape', 'TestShape', option, value]):
+                ocareport.parse_arguments()
+
     def test_all_options_combined(self):
         """Test all options can be used together."""
         with mock.patch.object(sys, 'argv', [
@@ -192,6 +200,77 @@ class TestGetRegionSubscriptionList:
 
 class TestAuthentication:
     """Tests for authentication functions."""
+
+    def test_forced_auth_failure_exits_without_retry_prompt(self):
+        """Test forced auth failure exits instead of prompting for another config."""
+        def fail_config_auth(auth_errors, *_args):
+            auth_errors['Config_File'] = 'config failed'
+            return None, None, None, None, None, None
+
+        with mock.patch('modules.identity.authenticate_config_file', side_effect=fail_config_auth):
+            with mock.patch('modules.identity.retry_auth') as mock_retry:
+                with mock.patch('modules.identity.print_error') as mock_print_error:
+                    with pytest.raises(SystemExit) as exc_info:
+                        identity.init_authentication('cf', '~/.oci/config', 'DEFAULT')
+
+        assert exc_info.value.code == 1
+        mock_retry.assert_not_called()
+        mock_print_error.assert_called_once_with('Config_File', 'config failed')
+
+    def test_auto_auth_failure_prompts_for_retry_when_interactive(self):
+        """Test auto auth keeps the existing retry prompt in interactive terminals."""
+        def fail_cloud_shell(auth_errors):
+            auth_errors['CloudShell'] = 'cloud shell failed'
+            return None, None, None, None, None, None
+
+        def fail_config_auth(auth_errors, *_args):
+            auth_errors['Config_File'] = 'config failed'
+            return None, None, None, None, None, None
+
+        def fail_instance_principals(auth_errors):
+            auth_errors['Instance_Principals'] = 'instance principals failed'
+            return None, None, None, None, None, None
+
+        with mock.patch('modules.identity.authenticate_cloud_shell', side_effect=fail_cloud_shell):
+            with mock.patch('modules.identity.authenticate_config_file', side_effect=fail_config_auth):
+                with mock.patch('modules.identity.authenticate_instance_principals', side_effect=fail_instance_principals):
+                    with mock.patch('sys.stdin.isatty', return_value=True):
+                        with mock.patch('modules.identity.retry_auth', return_value='retry-result') as mock_retry:
+                            result = identity.init_authentication('', '~/.oci/config', 'DEFAULT')
+
+        assert result == 'retry-result'
+        mock_retry.assert_called_once_with()
+
+    def test_auto_auth_failure_exits_without_retry_prompt_when_noninteractive(self):
+        """Test auto auth does not block on input in noninteractive terminals."""
+        def fail_cloud_shell(auth_errors):
+            auth_errors['CloudShell'] = 'cloud shell failed'
+            return None, None, None, None, None, None
+
+        def fail_config_auth(auth_errors, *_args):
+            auth_errors['Config_File'] = 'config failed'
+            return None, None, None, None, None, None
+
+        def fail_instance_principals(auth_errors):
+            auth_errors['Instance_Principals'] = 'instance principals failed'
+            return None, None, None, None, None, None
+
+        with mock.patch('modules.identity.authenticate_cloud_shell', side_effect=fail_cloud_shell):
+            with mock.patch('modules.identity.authenticate_config_file', side_effect=fail_config_auth):
+                with mock.patch('modules.identity.authenticate_instance_principals', side_effect=fail_instance_principals):
+                    with mock.patch('sys.stdin.isatty', return_value=False):
+                        with mock.patch('modules.identity.retry_auth') as mock_retry:
+                            with mock.patch('modules.identity.print_error') as mock_print_error:
+                                with pytest.raises(SystemExit) as exc_info:
+                                    identity.init_authentication('', '~/.oci/config', 'DEFAULT')
+
+        assert exc_info.value.code == 1
+        mock_retry.assert_not_called()
+        assert mock_print_error.call_args_list == [
+            mock.call('CloudShell', 'cloud shell failed'),
+            mock.call('Config_File', 'config failed'),
+            mock.call('Instance_Principals', 'instance principals failed'),
+        ]
 
     @mock.patch('modules.identity.oci.identity.IdentityClient')
     @mock.patch('modules.identity.oci.signer.Signer')

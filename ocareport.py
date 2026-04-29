@@ -23,6 +23,19 @@ from modules.identity import (
 VERSION = '1.1.0'
 
 
+def positive_float(value):
+    """Parse a positive float argument."""
+    try:
+        parsed_value = float(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"{value!r} is not a valid number") from exc
+
+    if parsed_value <= 0:
+        raise argparse.ArgumentTypeError("must be greater than 0")
+
+    return parsed_value
+
+
 def parse_arguments():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(
@@ -43,9 +56,9 @@ def parse_arguments():
                         help="Region to analyze: specific region name, 'all' for all regions, or empty for home region")
     parser.add_argument('-shape', default='', dest='shape', required=True,
                         help='Compute shape name to check (required)')
-    parser.add_argument('-ocpus', type=float, default=1, dest='ocpu',
+    parser.add_argument('-ocpus', type=positive_float, default=1.0, dest='ocpu',
                         help='OCPU count for flex shapes (default: 1)')
-    parser.add_argument('-memory', type=float, default=1, dest='memory',
+    parser.add_argument('-memory', type=positive_float, default=1.0, dest='memory',
                         help='Memory in GB for flex shapes (default: 1)')
 
     return parser.parse_args()

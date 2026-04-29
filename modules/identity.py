@@ -2,6 +2,7 @@
 """OCI authentication and identity management."""
 
 import os
+import sys
 import oci
 from modules.utils import yellow, green, red, print_info, print_error
 
@@ -46,8 +47,14 @@ def init_authentication(user_auth, config_file_path, config_profile):
     for auth_type, error in auth_errors.items():
         print_error(auth_type, error)
 
-    # Offer retry with custom config file
-    return retry_auth()
+    if user_auth:
+        raise SystemExit(1)
+
+    # Offer retry with custom config file only when input will not block automation.
+    if sys.stdin.isatty():
+        return retry_auth()
+
+    raise SystemExit(1)
 
 
 def retry_auth():
