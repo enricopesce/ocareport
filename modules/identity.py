@@ -176,10 +176,9 @@ def authenticate_instance_principals(auth_errors):
 
 def get_region_subscription_list(identity_client, tenancy_id, target_region):
     """
-    Get list of subscribed regions.
+    Get the subscribed region to analyze.
 
     - If target_region is empty: returns home region only
-    - If target_region is 'all': returns all subscribed regions
     - Otherwise: returns the specified region if subscribed
     """
     try:
@@ -192,11 +191,6 @@ def get_region_subscription_list(identity_client, tenancy_id, target_region):
             if home:
                 print_info(green, 'Region', 'analyzed', home.region_name)
                 return [home]
-
-        # All regions requested
-        if target_region.lower() == 'all':
-            print_info(green, 'Region', 'analyzed', 'all subscribed regions')
-            return subscribed_regions
 
         # Specific region requested
         region_map = {r.region_name.lower(): r for r in subscribed_regions}

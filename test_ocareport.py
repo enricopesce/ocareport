@@ -2,6 +2,7 @@
 import sys
 from unittest import mock
 
+import oci
 import pytest
 
 import ocareport
@@ -33,6 +34,7 @@ class TestParseArguments:
             assert args.region == ''
             assert args.ocpu == 1
             assert args.memory == 1
+            assert args.output_format == 'table'
 
     def test_auth_method_config_file(self):
         """Test -auth cf flag."""
@@ -70,11 +72,12 @@ class TestParseArguments:
             args = ocareport.parse_arguments()
             assert args.region == 'eu-milan-1'
 
-    def test_region_all(self):
-        """Test -region all for all regions."""
-        with mock.patch.object(sys, 'argv', ['ocareport.py', '-region', 'all', '-shape', 'TestShape']):
+    @pytest.mark.parametrize('output_format', ['table', 'json', 'csv'])
+    def test_output_format(self, output_format):
+        """Test -output accepts supported formats."""
+        with mock.patch.object(sys, 'argv', ['ocareport.py', '-shape', 'TestShape', '-output', output_format]):
             args = ocareport.parse_arguments()
-            assert args.region == 'all'
+            assert args.output_format == output_format
 
     def test_flex_options(self):
         """Test -ocpus and -memory set OCPU and memory for flex shapes."""
@@ -164,8 +167,8 @@ class TestGetRegionSubscriptionList:
         assert len(result) == 1
         assert result[0].region_name == 'us-ashburn-1'
 
-    def test_returns_all_regions(self):
-        """Test all regions returned when 'all' specified."""
+    def test_rejects_all_region_keyword(self):
+        """Test global region search is not supported."""
         mock_client = mock.MagicMock()
         mock_region1 = mock.MagicMock()
         mock_region1.region_name = 'us-ashburn-1'
@@ -175,10 +178,12 @@ class TestGetRegionSubscriptionList:
         mock_region2.is_home_region = False
 
         mock_client.list_region_subscriptions.return_value.data = [mock_region1, mock_region2]
+        mock_known_region = mock.MagicMock()
+        mock_known_region.name = 'us-ashburn-1'
+        mock_client.list_regions.return_value.data = [mock_known_region]
 
-        result = identity.get_region_subscription_list(mock_client, 'test-tenancy', 'all')
-
-        assert len(result) == 2
+        with pytest.raises(SystemExit):
+            identity.get_region_subscription_list(mock_client, 'test-tenancy', 'all')
 
     def test_filters_to_single_region(self):
         """Test filtering to a specific region."""
@@ -362,6 +367,262 @@ class TestCreateCapacityReport:
 
         assert shape_config.ocpus == 24.0
         assert shape_config.memory_in_gbs == 512.0
+
+
+class TestCreateCapacityReportAvailabilities:
+    """Tests for AD-level capacity report queries."""
+
+    def test_returns_all_shape_availabilities(self):
+        """Test AD-level report returns all shape availability entries."""
+        mock_client = mock.MagicMock()
+        mock_result1 = mock.MagicMock()
+        mock_result1.fault_domain = 'FAULT-DOMAIN-1'
+        mock_result1.availability_status = 'AVAILABLE'
+        mock_result2 = mock.MagicMock()
+        mock_result2.fault_domain = 'FAULT-DOMAIN-2'
+        mock_result2.availability_status = 'OUT_OF_HOST_CAPACITY'
+        mock_client.create_compute_capacity_report.return_value.data.shape_availabilities = [
+            mock_result1,
+            mock_result2,
+        ]
+
+        result = ocareport.create_capacity_report_availabilities(
+            mock_client, 'compartment-id', 'AD-1', 'TestShape'
+        )
+
+        assert result == [mock_result1, mock_result2]
+
+    def test_fault_domains_passed_in_single_report(self):
+        """Test AD-level report requests each fault domain in one call."""
+        mock_client = mock.MagicMock()
+        mock_client.create_compute_capacity_report.return_value.data.shape_availabilities = []
+
+        ocareport.create_capacity_report_availabilities(
+            mock_client, 'compartment-id', 'AD-1', 'TestShape',
+            fault_domains=['FAULT-DOMAIN-1', 'FAULT-DOMAIN-2', 'FAULT-DOMAIN-3']
+        )
+
+        call_args = mock_client.create_compute_capacity_report.call_args
+        report_details = call_args[1]['create_compute_capacity_report_details']
+        fault_domains = [
+            shape_availability.fault_domain
+            for shape_availability in report_details.shape_availabilities
+        ]
+
+        assert fault_domains == ['FAULT-DOMAIN-1', 'FAULT-DOMAIN-2', 'FAULT-DOMAIN-3']
+        assert mock_client.create_compute_capacity_report.call_count == 1
+
+    def test_fault_domain_omitted_when_not_provided(self):
+        """Test AD-level report still supports an aggregate fallback."""
+        mock_client = mock.MagicMock()
+        mock_client.create_compute_capacity_report.return_value.data.shape_availabilities = []
+
+        ocareport.create_capacity_report_availabilities(
+            mock_client, 'compartment-id', 'AD-1', 'TestShape'
+        )
+
+        call_args = mock_client.create_compute_capacity_report.call_args
+        report_details = call_args[1]['create_compute_capacity_report_details']
+
+        assert report_details.shape_availabilities[0].fault_domain is None
+
+    def test_flex_shape_config_passed(self):
+        """Test AD-level report passes flex shape configuration."""
+        mock_client = mock.MagicMock()
+        mock_client.create_compute_capacity_report.return_value.data.shape_availabilities = []
+
+        ocareport.create_capacity_report_availabilities(
+            mock_client, 'compartment-id', 'AD-1',
+            'VM.Standard.E5.Flex', is_flex=True, ocpu=16.0, memory=256.0
+        )
+
+        call_args = mock_client.create_compute_capacity_report.call_args
+        report_details = call_args[1]['create_compute_capacity_report_details']
+        shape_config = report_details.shape_availabilities[0].instance_shape_config
+
+        assert shape_config.ocpus == 16.0
+        assert shape_config.memory_in_gbs == 256.0
+
+
+class TestCreateRegionClients:
+    """Tests for region-specific OCI client creation."""
+
+    @mock.patch('ocareport.oci.core.ComputeClient')
+    @mock.patch('ocareport.oci.identity.IdentityClient')
+    def test_create_region_clients_does_not_mutate_base_config(self, mock_identity, mock_compute):
+        """Test regional client creation copies config before setting region."""
+        base_config = {
+            'region': 'us-ashburn-1',
+            'tenancy': 'test-tenancy',
+        }
+        signer = mock.MagicMock()
+
+        identity_client, core_client = ocareport.create_region_clients(
+            base_config,
+            signer,
+            'eu-frankfurt-1'
+        )
+
+        assert identity_client == mock_identity.return_value
+        assert core_client == mock_compute.return_value
+        assert base_config['region'] == 'us-ashburn-1'
+
+        identity_config = mock_identity.call_args.kwargs['config']
+        compute_config = mock_compute.call_args.kwargs['config']
+
+        assert identity_config['region'] == 'eu-frankfurt-1'
+        assert compute_config['region'] == 'eu-frankfurt-1'
+        assert identity_config is not base_config
+        assert compute_config is not base_config
+
+
+class TestAnalyzeRegionCapacity:
+    """Tests for regional capacity collection."""
+
+    @mock.patch('ocareport.create_capacity_report_availabilities')
+    @mock.patch('ocareport.get_fault_domains')
+    @mock.patch('ocareport.get_availability_domains')
+    @mock.patch('ocareport.create_region_clients')
+    def test_analyze_region_capacity_returns_table_rows(
+        self,
+        mock_create_clients,
+        mock_get_ads,
+        mock_get_fds,
+        mock_create_report,
+    ):
+        """Test regional analysis returns normalized table rows."""
+        mock_identity = mock.MagicMock()
+        mock_core = mock.MagicMock()
+        mock_create_clients.return_value = (mock_identity, mock_core)
+        mock_get_ads.return_value = ['AD-1']
+        mock_get_fds.return_value = ['FAULT-DOMAIN-1']
+
+        availability = mock.MagicMock()
+        availability.fault_domain = 'FAULT-DOMAIN-1'
+        availability.instance_shape = 'TestShape'
+        availability.availability_status = 'AVAILABLE'
+        availability.available_count = 3
+        mock_create_report.return_value = [availability]
+
+        region = mock.MagicMock()
+        region.region_name = 'eu-frankfurt-1'
+
+        rows = ocareport.analyze_region_capacity(
+            {'region': 'us-ashburn-1'},
+            mock.MagicMock(),
+            'test-tenancy',
+            region,
+            'TestShape'
+        )
+
+        assert rows == [{
+            'region': 'eu-frankfurt-1',
+            'availability_domain': 'AD-1',
+            'fault_domain': 'FAULT-DOMAIN-1',
+            'shape': 'TestShape',
+            'status': 'AVAILABLE',
+            'available_count': 3,
+            'message': '',
+        }]
+
+    @mock.patch('ocareport.create_capacity_report_availabilities')
+    @mock.patch('ocareport.get_fault_domains')
+    @mock.patch('ocareport.get_availability_domains')
+    @mock.patch('ocareport.create_region_clients')
+    def test_analyze_region_capacity_records_ad_errors(
+        self,
+        mock_create_clients,
+        mock_get_ads,
+        mock_get_fds,
+        mock_create_report,
+    ):
+        """Test an AD error becomes an ERROR row and does not abort analysis."""
+        mock_create_clients.return_value = (mock.MagicMock(), mock.MagicMock())
+        mock_get_ads.return_value = ['AD-1', 'AD-2']
+        mock_get_fds.return_value = ['FAULT-DOMAIN-1']
+        mock_create_report.side_effect = [
+            oci.exceptions.ServiceError(500, 'InternalError', {}, 'temporary failure'),
+            [],
+        ]
+
+        region = mock.MagicMock()
+        region.region_name = 'eu-frankfurt-1'
+
+        rows = ocareport.analyze_region_capacity(
+            {'region': 'us-ashburn-1'},
+            mock.MagicMock(),
+            'test-tenancy',
+            region,
+            'TestShape'
+        )
+
+        assert rows[0] == {
+            'region': 'eu-frankfurt-1',
+            'availability_domain': 'AD-1',
+            'fault_domain': '-',
+            'shape': 'TestShape',
+            'status': 'ERROR',
+            'available_count': None,
+            'message': 'temporary failure',
+        }
+        assert len(rows) == 1
+
+
+class TestOutputAndExitCode:
+    """Tests for output helpers and automation exit codes."""
+
+    def test_get_exit_code_available(self):
+        """Test exit code is 0 when at least one result is available."""
+        assert ocareport.get_exit_code([
+            {'status': 'OUT_OF_HOST_CAPACITY'},
+            {'status': 'AVAILABLE'},
+        ]) == 0
+
+    def test_get_exit_code_error_without_availability(self):
+        """Test exit code is 1 for technical/API errors without availability."""
+        assert ocareport.get_exit_code([
+            {'status': 'ERROR'},
+        ]) == 1
+
+    def test_get_exit_code_no_capacity(self):
+        """Test exit code is 2 when no capacity is available."""
+        assert ocareport.get_exit_code([
+            {'status': 'OUT_OF_HOST_CAPACITY'},
+        ]) == 2
+
+    def test_render_json(self, capsys):
+        """Test JSON output is machine readable."""
+        rows = [{
+            'region': 'eu-frankfurt-1',
+            'availability_domain': 'AD-1',
+            'fault_domain': 'FAULT-DOMAIN-1',
+            'shape': 'TestShape',
+            'status': 'AVAILABLE',
+            'available_count': 2,
+            'message': '',
+        }]
+
+        ocareport.render_json(rows)
+
+        assert '"available_count": 2' in capsys.readouterr().out
+
+    def test_render_csv(self, capsys):
+        """Test CSV output includes automation-friendly columns."""
+        rows = [{
+            'region': 'eu-frankfurt-1',
+            'availability_domain': 'AD-1',
+            'fault_domain': 'FAULT-DOMAIN-1',
+            'shape': 'TestShape',
+            'status': 'AVAILABLE',
+            'available_count': 2,
+            'message': '',
+        }]
+
+        ocareport.render_csv(rows)
+
+        output = capsys.readouterr().out
+        assert 'region,availability_domain,fault_domain,shape,status,available_count,message' in output
+        assert 'eu-frankfurt-1,AD-1,FAULT-DOMAIN-1,TestShape,AVAILABLE,2,' in output
 
 
 class TestMain:

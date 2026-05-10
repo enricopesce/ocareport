@@ -4,10 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ocareport"
-version = "1.1.0"
-description = "Instantly check Oracle Cloud Infrastructure (OCI) compute capacity and shape availability across all regions. A powerful CLI tool for tracking VMs, bare metal, and high-demand GPUs like NVIDIA A100, H100, and L40S."
+version = "1.2.0"
+description = "Check Oracle Cloud Infrastructure (OCI) compute capacity and shape availability by region, availability domain, and fault domain. A CLI tool for GPU discovery, Terraform pre-checks, and cloud automation."
 readme = "README.md"
-license = {text = "MIT"}
+license = "MIT"
 requires-python = ">=3.8"
 authors = [
     {name = "Enrico Pesce", email = "enrico@enricopesce.it"}
@@ -66,7 +66,6 @@ classifiers = [
     "Intended Audience :: Developers",
     "Intended Audience :: System Administrators",
     "Intended Audience :: Information Technology",
-    "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.8",

@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026
+
+### Added
+- `available_count` reporting for capacity results
+- `-output table|json|csv` for automation and reporting
+- Automation-friendly exit codes for available, unavailable, and error outcomes
+- Product-focused README examples for GPU discovery, Fault Domain selection, Terraform pre-checks, CloudShell, and GitHub Actions
+
+### Changed
+- Removed global `-region all` search; reports now target the home region or one explicit region.
+- AD-level API errors are reported as result rows instead of aborting the whole report.
+
 ## [1.1.0] - 2024
 
 ### Added

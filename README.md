@@ -1,47 +1,28 @@
 # OCI Compute Capacity Report (ocareport)
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![PyPI](https://img.shields.io/pypi/v/ocareport.svg)](https://pypi.org/project/ocareport/)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![OCI SDK](https://img.shields.io/badge/OCI%20SDK-2.149.0+-orange.svg)](https://oracle-cloud-infrastructure-python-sdk.readthedocs.io/)
 [![Tests](https://github.com/enricopesce/ocareport/actions/workflows/ci.yml/badge.svg)](https://github.com/enricopesce/ocareport/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-**Check Oracle Cloud Infrastructure compute shape availability across all regions instantly.**
+**Find usable Oracle Cloud Infrastructure compute capacity before you deploy.**
 
-A command-line tool that queries the OCI Compute Capacity Report API to find available compute resources including VMs, bare metal instances, and GPU shapes (NVIDIA A100, H100, A10, L40S) across regions, availability domains, and fault domains.
+`ocareport` queries the OCI Compute Capacity Report API and shows where a compute shape is available by region, availability domain, and fault domain. It is designed for OCI operators, platform teams, automation engineers, and GPU users who need a quick answer before launching instances or applying Terraform.
 
-## Features
-
-- **Multi-Region Support** - Check capacity in your home region, a specific region, or all subscribed regions at once
-- **Flexible Authentication** - Auto-detects CloudShell, config file, or Instance Principals authentication
-- **Granular Results** - Shows availability down to the Fault Domain level
-- **Flex Shape Support** - Specify custom OCPU and memory configurations
-- **GPU Discovery** - Find available GPU instances (A100, H100, A10, V100, L40S) across OCI
-- **Rich Output** - Color-coded terminal output with formatted tables
-
-## Quick Start
+## Install
 
 ```bash
-# Install dependencies
-pip install -r requirements.txt
-
-# Check shape availability in your home region
-python ocareport.py -shape VM.Standard.E5.Flex
-
-# Check GPU availability across all regions
-python ocareport.py -shape BM.GPU.H100.8 -region all
+pip install ocareport
 ```
 
-## Installation
-
-### From Source
+Then run:
 
 ```bash
-git clone https://github.com/enricopesce/ocareport.git
-cd ocareport
-pip install -r requirements.txt
+ocareport -shape VM.Standard.E5.Flex
 ```
 
-### Using pip (editable mode)
+From source:
 
 ```bash
 git clone https://github.com/enricopesce/ocareport.git
@@ -49,108 +30,210 @@ cd ocareport
 pip install -e .
 ```
 
-## Output Status Meanings
+## What It Answers
 
-| Status | Description |
-|--------|-------------|
-| **AVAILABLE** | The capacity for the specified shape is currently available |
-| **HARDWARE_NOT_SUPPORTED** | The necessary hardware has not yet been deployed in this region |
-| **OUT_OF_HOST_CAPACITY** | Additional hardware is currently being deployed in this region |
+- **Where can I launch this GPU shape?**
+- **Which Fault Domain should I choose for a deploy?**
+- **Can my CI pipeline stop before Terraform fails?**
+- **Can I run a capacity check directly from CloudShell?**
+- **How many matching instances does OCI report as available?**
 
-## How It Works
+## Use Cases
 
-When no authentication method is specified, the tool **automatically** tries authentication methods in this order:
+### Find GPU Capacity
 
-1. **CloudShell** - Uses delegation token (when running in OCI CloudShell)
-2. **Config File** - Uses local `~/.oci/config` file
-3. **Instance Principals** - Uses VM identity (when running on OCI compute)
+Check a high-demand GPU shape in a target region:
 
-If all methods fail, the tool prompts for a custom config file path.
+```bash
+ocareport -region eu-frankfurt-1 -shape BM.GPU.H100.8
+```
 
-## Authentication Methods
+Check an A10 VM shape with config-file auth:
+
+```bash
+ocareport -auth cf -profile DEFAULT -region eu-frankfurt-1 -shape VM.GPU.A10.2
+```
+
+The output includes `STATUS` and `AVAILABLE COUNT`, so you can distinguish unsupported hardware from temporary host capacity exhaustion.
+
+### Choose a Fault Domain for Deploy
+
+Use the `FAULT DOMAIN` rows with `STATUS = AVAILABLE`:
+
+```bash
+ocareport -region eu-frankfurt-1 -shape VM.Standard.E5.Flex -ocpus 8 -memory 64
+```
+
+Example decision:
+
+```text
+REGION          AVAILABILITY DOMAIN  FAULT DOMAIN    STATUS     AVAILABLE COUNT
+eu-frankfurt-1  AD-1                 FAULT-DOMAIN-1  AVAILABLE  2
+eu-frankfurt-1  AD-1                 FAULT-DOMAIN-2  OUT_OF...  0
+eu-frankfurt-1  AD-1                 FAULT-DOMAIN-3  AVAILABLE  1
+```
+
+Pick `FAULT-DOMAIN-1` or `FAULT-DOMAIN-3` for that deployment.
+
+### Check Before Terraform
+
+Run `ocareport` before `terraform apply` and use its exit code:
+
+```bash
+ocareport -region eu-frankfurt-1 -shape VM.Standard.E5.Flex -ocpus 8 -memory 64 -output json > capacity.json
+terraform apply
+```
+
+Exit codes:
+
+| Exit Code | Meaning |
+|-----------|---------|
+| `0` | At least one Fault Domain has `AVAILABLE` capacity |
+| `1` | Technical/API/input error, or an AD-level error with no available capacity found |
+| `2` | Query completed but no Fault Domain has available capacity |
+
+### Use in CloudShell
+
+CloudShell auth is auto-detected when the OCI environment variables are present:
+
+```bash
+ocareport -shape VM.Standard.E5.Flex
+```
+
+Or force CloudShell delegation token auth:
+
+```bash
+ocareport -auth cs -region eu-frankfurt-1 -shape BM.GPU.H100.8
+```
+
+### Export JSON or CSV
+
+JSON for scripts:
+
+```bash
+ocareport -region eu-frankfurt-1 -shape VM.Standard.E5.Flex -output json
+```
+
+CSV for reports:
+
+```bash
+ocareport -region eu-frankfurt-1 -shape VM.Standard.E5.Flex -output csv
+```
+
+## GitHub Actions Example
+
+Use `ocareport` as a pre-flight capacity check before infrastructure deployment:
+
+```yaml
+name: OCI capacity pre-check
+
+on:
+  workflow_dispatch:
+
+jobs:
+  capacity-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install ocareport
+
+      - name: Check OCI capacity
+        run: |
+          mkdir -p ~/.oci
+          cat > ~/.oci/config <<'EOF'
+          [DEFAULT]
+          user=${{ secrets.OCI_USER_OCID }}
+          fingerprint=${{ secrets.OCI_FINGERPRINT }}
+          tenancy=${{ secrets.OCI_TENANCY_OCID }}
+          region=eu-frankfurt-1
+          key_file=~/.oci/oci_api_key.pem
+          EOF
+          printf '%s' "${{ secrets.OCI_PRIVATE_KEY }}" > ~/.oci/oci_api_key.pem
+          chmod 600 ~/.oci/oci_api_key.pem
+          ocareport -auth cf -region eu-frankfurt-1 -shape VM.Standard.E5.Flex -ocpus 8 -memory 64 -output json
+```
+
+## Release Workflow
+
+This repository includes a release workflow that runs tests, builds the package, creates a GitHub Release, and publishes to PyPI.
+
+Prepare a release:
+
+```bash
+python -m pip install build twine
+pytest -q
+python -m build
+python -m twine check dist/*
+```
+
+Create and push a version tag:
+
+```bash
+git tag v1.2.0
+git push origin v1.2.0
+```
+
+The `Release` GitHub Actions workflow will:
+
+1. Run tests on Python 3.8 through 3.12
+2. Build source and wheel distributions
+3. Validate package metadata with `twine check`
+4. Create a GitHub Release with the package artifacts
+5. Publish to PyPI
+
+PyPI publishing uses Trusted Publishing. Configure the PyPI project with:
+
+| Field | Value |
+|-------|-------|
+| Publisher | GitHub |
+| Owner | `enricopesce` |
+| Repository | `ocareport` |
+| Workflow | `release.yml` |
+| Environment | `pypi` |
+
+## Authentication
+
+When no authentication method is specified, `ocareport` tries:
+
+1. **CloudShell** - Delegation token, when running in OCI CloudShell
+2. **Config File** - Local `~/.oci/config`
+3. **Instance Principals** - OCI compute instance identity
+
+You can force a method:
 
 | Method | Flag | Description |
 |--------|------|-------------|
-| Auto-detect | (none) | Tries all methods automatically |
+| Auto-detect | none | Tries all methods automatically |
 | CloudShell | `-auth cs` | Uses OCI CloudShell delegation token |
 | Config File | `-auth cf` | Uses local OCI config file |
 | Instance Principals | `-auth ip` | Uses OCI compute instance identity |
 
-## Command Line Options
+## CLI Reference
 
 | Argument | Parameter | Description |
 |----------|-----------|-------------|
-| `-auth` | `cs`, `cf`, `ip` | Force specific authentication method |
-| `-config_file` | path | Path to OCI config file (default: `~/.oci/config`) |
-| `-profile` | name | Config file profile section (default: `DEFAULT`) |
-| `-region` | region_name | Region to analyze, or `all` for all regions (default: home region) |
-| `-shape` | shape_name | **Required.** Compute shape name to check |
-| `-ocpus` | number | OCPU count for flex shapes (default: 1) |
-| `-memory` | number | Memory in GB for flex shapes (default: 1) |
+| `-shape` | shape_name | Required. Compute shape name to check |
+| `-region` | region_name | Region to analyze. Defaults to home region |
+| `-ocpus` | number | OCPU count for flex shapes. Default: `1` |
+| `-memory` | number | Memory in GB for flex shapes. Default: `1` |
+| `-output` | `table`, `json`, `csv` | Output format. Default: `table` |
+| `-auth` | `cs`, `cf`, `ip` | Force a specific authentication method |
+| `-config_file` | path | Path to OCI config file. Default: `~/.oci/config` |
+| `-profile` | name | Config file profile section. Default: `DEFAULT` |
 
-## Usage Examples
+## Output Status
 
-### Check shape in home region (auto-detect auth)
-```bash
-python ocareport.py -shape VM.Standard.E5.Flex
-```
-
-### Check GPU availability with config file auth
-```bash
-python ocareport.py -auth cf -shape VM.GPU.A10.2
-```
-
-### Check in a specific region
-```bash
-python ocareport.py -shape VM.Standard.E5.Flex -region eu-frankfurt-1
-```
-
-### Check all subscribed regions
-```bash
-python ocareport.py -shape VM.Standard.E5.Flex -region all
-```
-
-### Flex shape with specific OCPU and memory
-```bash
-python ocareport.py -shape VM.Standard.E5.Flex -ocpus 24 -memory 512
-```
-
-### Using custom config file and profile
-```bash
-python ocareport.py -auth cf -config_file ~/my-config -profile PROD -shape BM.GPU.H100.8
-```
-
-### Full example with all options
-```bash
-python ocareport.py \
-  -auth cf \
-  -config_file ~/.oci/config \
-  -profile DEFAULT \
-  -region eu-paris-1 \
-  -shape VM.Standard.E5.Flex \
-  -ocpus 16 \
-  -memory 128
-```
-
-## Setup for Instance Principals
-
-If running from an OCI compute instance, configure Instance Principals authentication:
-
-### 1. Create a Dynamic Group
-
-Create a Dynamic Group called `OCI_Scripting` with this matching rule:
-
-```
-ANY {instance.id = 'ocid1.instance.oc1.xxx.your_instance_ocid'}
-```
-
-### 2. Create a Policy
-
-Create a policy in the root compartment:
-
-```
-allow dynamic-group 'YourDomain'/'OCI_Scripting' to read all-resources in tenancy
-```
+| Status | Meaning |
+|--------|---------|
+| `AVAILABLE` | OCI reports capacity for the requested shape/configuration |
+| `HARDWARE_NOT_SUPPORTED` | Required hardware is not deployed in that location |
+| `OUT_OF_HOST_CAPACITY` | Hardware exists, but OCI reports no current host capacity |
+| `ERROR` | An API error occurred for that availability domain; other ADs continue |
 
 ## Common GPU Shapes
 
@@ -166,38 +249,54 @@ allow dynamic-group 'YourDomain'/'OCI_Scripting' to read all-resources in tenanc
 | `BM.GPU.H100.8` | NVIDIA H100 | 8 | Frontier AI, LLM training |
 | `BM.GPU.L40S.4` | NVIDIA L40S | 4 | AI inference, rendering |
 
-## Running Tests
+## Instance Principals Setup
+
+If running from an OCI compute instance, configure Instance Principals authentication.
+
+Dynamic group example:
+
+```text
+ANY {instance.id = 'ocid1.instance.oc1.xxx.your_instance_ocid'}
+```
+
+Policy example:
+
+```text
+allow dynamic-group 'YourDomain'/'OCI_Scripting' to read all-resources in tenancy
+```
+
+## Development
 
 ```bash
-pip install -r requirements.txt
-pytest test_ocareport.py -v
+pip install -e ".[dev]"
+pytest -q
 ```
 
-## Project Structure
+Project structure:
 
-```
+```text
 ocareport/
-├── ocareport.py          # Main CLI tool
+├── ocareport.py
 ├── modules/
 │   ├── __init__.py
-│   ├── identity.py       # Authentication and OCI identity functions
-│   └── utils.py          # Terminal colors and formatting
-├── test_ocareport.py     # Unit tests
-├── requirements.txt      # Python dependencies
-├── pyproject.toml        # Package configuration
-├── LICENSE               # MIT License
-├── README.md             # This file
-├── CHANGELOG.md          # Version history
-└── CONTRIBUTING.md       # Contribution guidelines
+│   ├── identity.py
+│   └── utils.py
+├── test_ocareport.py
+├── requirements.txt
+├── pyproject.toml
+├── LICENSE
+├── README.md
+├── CHANGELOG.md
+└── CONTRIBUTING.md
 ```
 
 ## Contributing
 
-Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+Contributions are welcome. Please see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License. See [LICENSE](LICENSE).
 
 ## Credits
 
@@ -205,10 +304,8 @@ Inspired by [OCI_ComputeCapacityReport](https://github.com/Olygo/OCI_ComputeCapa
 
 ## Contact
 
-Enrico Pesce - [@LinkedIn](https://www.linkedin.com/in/enricopesce/) - [@Blog](https://www.enricopesce.it/)
+Enrico Pesce - [LinkedIn](https://www.linkedin.com/in/enricopesce/) - [Blog](https://www.enricopesce.it/)
 
 Project Link: [https://github.com/enricopesce/ocareport](https://github.com/enricopesce/ocareport)
 
----
-
-**Keywords:** OCI, Oracle Cloud Infrastructure, compute capacity, GPU availability, NVIDIA A100, NVIDIA H100, cloud computing, capacity planning, DevOps, CLI tool
+**Keywords:** OCI, Oracle Cloud Infrastructure, compute capacity, GPU availability, NVIDIA A100, NVIDIA H100, cloud computing, capacity planning, DevOps, Terraform, CloudShell, CLI tool
