@@ -3,12 +3,11 @@
 [![PyPI](https://img.shields.io/pypi/v/ocareport.svg)](https://pypi.org/project/ocareport/)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![OCI SDK](https://img.shields.io/badge/OCI%20SDK-2.149.0+-orange.svg)](https://oracle-cloud-infrastructure-python-sdk.readthedocs.io/)
-[![Tests](https://github.com/enricopesce/ocareport/actions/workflows/ci.yml/badge.svg)](https://github.com/enricopesce/ocareport/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 **Find usable Oracle Cloud Infrastructure compute capacity before you deploy.**
 
-`ocareport` queries the OCI Compute Capacity Report API and shows where a compute shape is available by region, availability domain, and fault domain. It is designed for OCI operators, platform teams, automation engineers, and GPU users who need a quick answer before launching instances or applying Terraform.
+`ocareport` queries the OCI Compute Capacity Report API and shows where a compute shape is available by region, availability domain, and fault domain. It is designed for OCI operators, platform teams, automation engineers, and GPU users who need a quick answer before launching instances.
 
 ## Install
 
@@ -34,7 +33,6 @@ pip install -e .
 
 - **Where can I launch this GPU shape?**
 - **Which Fault Domain should I choose for a deploy?**
-- **Can my CI pipeline stop before Terraform fails?**
 - **Can I run a capacity check directly from CloudShell?**
 - **How many matching instances does OCI report as available?**
 
@@ -56,6 +54,32 @@ ocareport -auth cf -profile DEFAULT -region eu-frankfurt-1 -shape VM.GPU.A10.2
 
 The output includes `STATUS` and `AVAILABLE COUNT`, so you can distinguish unsupported hardware from temporary host capacity exhaustion.
 
+### Check Compute CPU Capacity
+
+Check a flexible AMD E5 VM with 8 OCPUs and 64 GB memory:
+
+```bash
+ocareport -region eu-frankfurt-1 -shape VM.Standard.E5.Flex -ocpus 8 -memory 64
+```
+
+Check an Intel X9 flexible VM:
+
+```bash
+ocareport -region eu-frankfurt-1 -shape VM.Standard3.Flex -ocpus 4 -memory 32
+```
+
+Check an Ampere A1 ARM flexible VM:
+
+```bash
+ocareport -region eu-frankfurt-1 -shape VM.Standard.A1.Flex -ocpus 4 -memory 24
+```
+
+Check a dense I/O bare metal shape:
+
+```bash
+ocareport -region eu-frankfurt-1 -shape BM.DenseIO.E4.128
+```
+
 ### Choose a Fault Domain for Deploy
 
 Use the `FAULT DOMAIN` rows with `STATUS = AVAILABLE`:
@@ -75,13 +99,12 @@ eu-frankfurt-1  AD-1                 FAULT-DOMAIN-3  AVAILABLE  1
 
 Pick `FAULT-DOMAIN-1` or `FAULT-DOMAIN-3` for that deployment.
 
-### Check Before Terraform
+### Check Before Deployment
 
-Run `ocareport` before `terraform apply` and use its exit code:
+Run `ocareport` before starting a deployment and use its exit code:
 
 ```bash
 ocareport -region eu-frankfurt-1 -shape VM.Standard.E5.Flex -ocpus 8 -memory 64 -output json > capacity.json
-terraform apply
 ```
 
 Exit codes:
@@ -94,7 +117,13 @@ Exit codes:
 
 ### Use in CloudShell
 
-CloudShell auth is auto-detected when the OCI environment variables are present:
+CloudShell auth is auto-detected when the OCI environment variables are present. Install or update `ocareport` in CloudShell:
+
+```bash
+python3 -m pip install --user --upgrade ocareport
+```
+
+Then run a capacity check:
 
 ```bash
 ocareport -shape VM.Standard.E5.Flex
@@ -105,6 +134,8 @@ Or force CloudShell delegation token auth:
 ```bash
 ocareport -auth cs -region eu-frankfurt-1 -shape BM.GPU.H100.8
 ```
+
+CloudShell already has an OCI delegation token, so you do not need a local `~/.oci/config` file or API key inside CloudShell. If you omit `-region`, `ocareport` uses your tenancy home region when it can discover it. Pass `-region` when you want to check a specific OCI region.
 
 ### Export JSON or CSV
 
@@ -118,44 +149,6 @@ CSV for reports:
 
 ```bash
 ocareport -region eu-frankfurt-1 -shape VM.Standard.E5.Flex -output csv
-```
-
-## GitHub Actions Example
-
-Use `ocareport` as a pre-flight capacity check before infrastructure deployment:
-
-```yaml
-name: OCI capacity pre-check
-
-on:
-  workflow_dispatch:
-
-jobs:
-  capacity-check:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - run: pip install ocareport
-
-      - name: Check OCI capacity
-        run: |
-          mkdir -p ~/.oci
-          cat > ~/.oci/config <<'EOF'
-          [DEFAULT]
-          user=${{ secrets.OCI_USER_OCID }}
-          fingerprint=${{ secrets.OCI_FINGERPRINT }}
-          tenancy=${{ secrets.OCI_TENANCY_OCID }}
-          region=eu-frankfurt-1
-          key_file=~/.oci/oci_api_key.pem
-          EOF
-          printf '%s' "${{ secrets.OCI_PRIVATE_KEY }}" > ~/.oci/oci_api_key.pem
-          chmod 600 ~/.oci/oci_api_key.pem
-          ocareport -auth cf -region eu-frankfurt-1 -shape VM.Standard.E5.Flex -ocpus 8 -memory 64 -output json
 ```
 
 ## Release Workflow
@@ -178,7 +171,7 @@ git tag v1.2.0
 git push origin v1.2.0
 ```
 
-The `Release` GitHub Actions workflow will:
+The release workflow will:
 
 1. Run tests on Python 3.8 through 3.12
 2. Build source and wheel distributions
@@ -212,6 +205,84 @@ You can force a method:
 | CloudShell | `-auth cs` | Uses OCI CloudShell delegation token |
 | Config File | `-auth cf` | Uses local OCI config file |
 | Instance Principals | `-auth ip` | Uses OCI compute instance identity |
+
+### Local Config File Setup
+
+For a laptop, workstation, or jump host, configure OCI SDK authentication in `~/.oci/config`.
+
+Create the config directory and generate an API signing key:
+
+```bash
+mkdir -p ~/.oci
+openssl genrsa -out ~/.oci/oci_api_key.pem 2048
+chmod 600 ~/.oci/oci_api_key.pem
+openssl rsa -pubout -in ~/.oci/oci_api_key.pem -out ~/.oci/oci_api_key_public.pem
+```
+
+Upload the public key in the OCI Console:
+
+1. Open **Profile** > **User settings** > **API keys**
+2. Add the contents of `~/.oci/oci_api_key_public.pem`
+3. Copy the generated fingerprint
+
+Create `~/.oci/config`:
+
+```ini
+[DEFAULT]
+user=ocid1.user.oc1..example
+fingerprint=12:34:56:78:90:ab:cd:ef:12:34:56:78:90:ab:cd:ef
+tenancy=ocid1.tenancy.oc1..example
+region=eu-frankfurt-1
+key_file=~/.oci/oci_api_key.pem
+```
+
+Then run:
+
+```bash
+ocareport -auth cf -shape VM.Standard.E5.Flex -ocpus 4 -memory 32
+```
+
+Use a named profile when you manage multiple tenancies or users:
+
+```ini
+[PROD]
+user=ocid1.user.oc1..example
+fingerprint=12:34:56:78:90:ab:cd:ef:12:34:56:78:90:ab:cd:ef
+tenancy=ocid1.tenancy.oc1..example
+region=eu-frankfurt-1
+key_file=~/.oci/prod_api_key.pem
+```
+
+```bash
+ocareport -auth cf -profile PROD -region eu-frankfurt-1 -shape VM.Standard.E5.Flex -ocpus 8 -memory 64
+```
+
+If your config file is in a different location:
+
+```bash
+ocareport -auth cf -config_file /path/to/oci-config -profile PROD -shape VM.Standard.A1.Flex -ocpus 4 -memory 24
+```
+
+### CloudShell Setup
+
+In OCI CloudShell, install the package for your CloudShell user and run with CloudShell auth:
+
+```bash
+python3 -m pip install --user --upgrade ocareport
+ocareport -auth cs -region eu-frankfurt-1 -shape VM.Standard.E5.Flex -ocpus 4 -memory 32
+```
+
+CloudShell sessions are ephemeral enough that using `--user --upgrade` is usually the simplest install path. Re-run the install command when you need a newer `ocareport` version.
+
+### Required OCI Permissions
+
+The authenticated principal must be allowed to inspect compute capacity reports and read the tenancy region metadata used by the tool. A broad read policy is simple for testing:
+
+```text
+allow group 'YourDomain'/'YourGroup' to read all-resources in tenancy
+```
+
+For tighter production policies, grant only the minimum read/inspect permissions your tenancy requires for Compute capacity report and Identity region lookups.
 
 ## CLI Reference
 
@@ -248,6 +319,17 @@ You can force a method:
 | `BM.GPU.A100-v2.8` | NVIDIA A100 80GB | 8 | LLM training, large models |
 | `BM.GPU.H100.8` | NVIDIA H100 | 8 | Frontier AI, LLM training |
 | `BM.GPU.L40S.4` | NVIDIA L40S | 4 | AI inference, rendering |
+
+## Common Compute CPU Shapes
+
+| Shape | Processor Family | Type | Use Case |
+|-------|------------------|------|----------|
+| `VM.Standard.E5.Flex` | AMD EPYC | Flexible VM | General purpose apps, services, databases |
+| `VM.Standard.E4.Flex` | AMD EPYC | Flexible VM | General purpose apps, dev/test, batch jobs |
+| `VM.Standard3.Flex` | Intel Xeon | Flexible VM | Enterprise workloads, x86 compatibility |
+| `VM.Standard.A1.Flex` | Ampere Altra | Flexible VM | ARM-native apps, cost-optimized services |
+| `BM.Standard.E5.192` | AMD EPYC | Bare metal | High-core-count compute workloads |
+| `BM.DenseIO.E4.128` | AMD EPYC | Bare metal | Local NVMe storage, data platforms |
 
 ## Instance Principals Setup
 
@@ -308,4 +390,4 @@ Enrico Pesce - [LinkedIn](https://www.linkedin.com/in/enricopesce/) - [Blog](htt
 
 Project Link: [https://github.com/enricopesce/ocareport](https://github.com/enricopesce/ocareport)
 
-**Keywords:** OCI, Oracle Cloud Infrastructure, compute capacity, GPU availability, NVIDIA A100, NVIDIA H100, cloud computing, capacity planning, DevOps, Terraform, CloudShell, CLI tool
+**Keywords:** OCI, Oracle Cloud Infrastructure, compute capacity, GPU availability, CPU capacity, NVIDIA A100, NVIDIA H100, cloud computing, capacity planning, DevOps, CloudShell, CLI tool
