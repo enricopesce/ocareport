@@ -83,21 +83,6 @@ eu-frankfurt-1  AD-1                 FAULT-DOMAIN-3  AVAILABLE  1
 
 Pick `FAULT-DOMAIN-1` or `FAULT-DOMAIN-3` for that deployment.
 
-### Check Before Deployment
-
-Run `ocareport` before starting a deployment and use its exit code:
-
-```bash
-ocareport -region eu-frankfurt-1 -shape VM.Standard.E5.Flex -ocpus 8 -memory 64 -output json > capacity.json
-```
-
-Exit codes:
-
-| Exit Code | Meaning |
-|-----------|---------|
-| `0` | At least one Fault Domain has `AVAILABLE` capacity |
-| `1` | Technical/API/input error, or an AD-level error with no available capacity found |
-| `2` | Query completed but no Fault Domain has available capacity |
 
 ### Use in CloudShell
 
@@ -134,44 +119,6 @@ CSV for reports:
 ```bash
 ocareport -region eu-frankfurt-1 -shape VM.Standard.E5.Flex -output csv
 ```
-
-## Release Workflow
-
-This repository includes a release workflow that runs tests, builds the package, creates a GitHub Release, and publishes to PyPI.
-
-Prepare a release:
-
-```bash
-python -m pip install build twine
-pytest -q
-python -m build
-python -m twine check dist/*
-```
-
-Create and push a version tag:
-
-```bash
-git tag v1.2.0
-git push origin v1.2.0
-```
-
-The release workflow will:
-
-1. Run tests on Python 3.8 through 3.12
-2. Build source and wheel distributions
-3. Validate package metadata with `twine check`
-4. Create a GitHub Release with the package artifacts
-5. Publish to PyPI
-
-PyPI publishing uses Trusted Publishing. Configure the PyPI project with:
-
-| Field | Value |
-|-------|-------|
-| Publisher | GitHub |
-| Owner | `enricopesce` |
-| Repository | `ocareport` |
-| Workflow | `release.yml` |
-| Environment | `pypi` |
 
 ## Authentication
 
