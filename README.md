@@ -7,7 +7,7 @@
 
 **Find usable Oracle Cloud Infrastructure compute capacity before you deploy.**
 
-`ocareport` queries the OCI Compute Capacity Report API and shows where a compute shape is available by region, availability domain, and fault domain. It is designed for OCI operators, platform teams, automation engineers, and GPU users who need a quick answer before launching instances.
+`ocareport` queries the OCI Compute Capacity Report API and shows where a compute shape is available by region, availability domain, and fault domain. It is designed for OCI operators, platform teams, and automation engineers who need a quick answer before launching instances.
 
 ## Install
 
@@ -31,28 +31,12 @@ pip install -e .
 
 ## What It Answers
 
-- **Where can I launch this GPU shape?**
+- **Where can I launch this compute shape?**
 - **Which Fault Domain should I choose for a deploy?**
 - **Can I run a capacity check directly from CloudShell?**
 - **How many matching instances does OCI report as available?**
 
 ## Use Cases
-
-### Find GPU Capacity
-
-Check a high-demand GPU shape in a target region:
-
-```bash
-ocareport -region eu-frankfurt-1 -shape BM.GPU.H100.8
-```
-
-Check an A10 VM shape with config-file auth:
-
-```bash
-ocareport -auth cf -profile DEFAULT -region eu-frankfurt-1 -shape VM.GPU.A10.2
-```
-
-The output includes `STATUS` and `AVAILABLE COUNT`, so you can distinguish unsupported hardware from temporary host capacity exhaustion.
 
 ### Check Compute CPU Capacity
 
@@ -132,7 +116,7 @@ ocareport -shape VM.Standard.E5.Flex
 Or force CloudShell delegation token auth:
 
 ```bash
-ocareport -auth cs -region eu-frankfurt-1 -shape BM.GPU.H100.8
+ocareport -auth cs -region eu-frankfurt-1 -shape VM.Standard.E5.Flex -ocpus 4 -memory 32
 ```
 
 CloudShell already has an OCI delegation token, so you do not need a local `~/.oci/config` file or API key inside CloudShell. If you omit `-region`, `ocareport` uses your tenancy home region when it can discover it. Pass `-region` when you want to check a specific OCI region.
@@ -306,20 +290,6 @@ For tighter production policies, grant only the minimum read/inspect permissions
 | `OUT_OF_HOST_CAPACITY` | Hardware exists, but OCI reports no current host capacity |
 | `ERROR` | An API error occurred for that availability domain; other ADs continue |
 
-## Common GPU Shapes
-
-| Shape | GPU | Count | Use Case |
-|-------|-----|-------|----------|
-| `VM.GPU.A10.1` | NVIDIA A10 | 1 | AI inference, graphics |
-| `VM.GPU.A10.2` | NVIDIA A10 | 2 | AI inference, graphics |
-| `VM.GPU3.1` | NVIDIA V100 | 1 | Deep learning, HPC |
-| `VM.GPU3.2` | NVIDIA V100 | 2 | Deep learning, HPC |
-| `VM.GPU3.4` | NVIDIA V100 | 4 | Deep learning, HPC |
-| `BM.GPU4.8` | NVIDIA A100 40GB | 8 | Large AI models, HPC |
-| `BM.GPU.A100-v2.8` | NVIDIA A100 80GB | 8 | LLM training, large models |
-| `BM.GPU.H100.8` | NVIDIA H100 | 8 | Frontier AI, LLM training |
-| `BM.GPU.L40S.4` | NVIDIA L40S | 4 | AI inference, rendering |
-
 ## Common Compute CPU Shapes
 
 | Shape | Processor Family | Type | Use Case |
@@ -390,4 +360,4 @@ Enrico Pesce - [LinkedIn](https://www.linkedin.com/in/enricopesce/) - [Blog](htt
 
 Project Link: [https://github.com/enricopesce/ocareport](https://github.com/enricopesce/ocareport)
 
-**Keywords:** OCI, Oracle Cloud Infrastructure, compute capacity, GPU availability, CPU capacity, NVIDIA A100, NVIDIA H100, cloud computing, capacity planning, DevOps, CloudShell, CLI tool
+**Keywords:** OCI, Oracle Cloud Infrastructure, compute capacity, CPU capacity, cloud computing, capacity planning, DevOps, CloudShell, CLI tool
