@@ -9,7 +9,10 @@ and fault domains using the Compute Capacity Report API.
 import argparse
 import csv
 import json
+import math
+import shlex
 import sys
+from collections import Counter
 from contextlib import nullcontext, redirect_stdout
 
 import oci
@@ -35,6 +38,8 @@ def positive_float(value):
     except ValueError as exc:
         raise argparse.ArgumentTypeError(f"{value!r} is not a valid number") from exc
 
+    if not math.isfinite(parsed_value):
+        raise argparse.ArgumentTypeError("must be a finite number")
     if parsed_value <= 0:
         raise argparse.ArgumentTypeError("must be greater than 0")
 
@@ -57,8 +62,10 @@ def parse_arguments():
                         help='Config file profile section (default: DEFAULT)')
 
     # Query options
-    parser.add_argument('-region', default='', dest='region',
-                        help='Region to analyze, or empty for home region')
+    parser.add_argument(
+        '-region', action='append', dest='regions',
+        help='Region(s) to analyze; repeat this option or use comma-separated names (default: home region)'
+    )
     parser.add_argument('-shape', default='', dest='shape', required=True,
                         help='Compute shape name to check (required)')
     parser.add_argument('-ocpus', type=positive_float, default=1.0, dest='ocpu',
@@ -66,10 +73,17 @@ def parse_arguments():
     parser.add_argument('-memory', type=positive_float, default=1.0, dest='memory',
                         help='Memory in GB for flex shapes (default: 1)')
     parser.add_argument('-output', default='table', dest='output_format',
-                        choices=['table', 'json', 'csv'],
+                        choices=['table', 'json', 'csv', 'simple'],
                         help='Output format: table, json, csv, or simple (default: table)')
+    parser.add_argument('-available-only', '-available_only', action='store_true',
+                        dest='available_only',
+                        help='Only display results where the requested capacity is available')
 
-    return parser.parse_args()
+    args = parser.parse_args()
+    # Repeated flags and comma-separated input share one string-based region path.
+    args.region = ','.join(args.regions or [])
+    del args.regions
+    return args
 
 
 def create_capacity_report(core_client, compartment_id, availability_domain,
@@ -216,10 +230,14 @@ def get_exit_code(rows):
     return 2
 
 
-def render_table(console, rows, shape, ocpu, memory):
+def render_table(console, rows, shape, ocpu, memory, is_flex=False):
     """Render capacity results as a rich table."""
+    title = f"Shape: {shape}"
+    if is_flex:
+        title += f" | OCPU: {ocpu} | Memory: {memory} GB"
+
     table = Table(
-        title=f"Shape: {shape} | OCPU: {ocpu} | Memory: {memory} GB",
+        title=title,
         box=box.MARKDOWN
     )
     table.add_column("REGION", justify="left")
@@ -284,7 +302,7 @@ def render_ascii_chart(rows):
 
     print("Availability Status Distribution:")
     print("-" * 50)
-    for status in ['AVAILABLE', 'HARDWARE_NOT_SUPPORTED', 'OUT_OF_HOST_CAPACITY']:
+    for status in ['AVAILABLE', 'HARDWARE_NOT_SUPPORTED', 'OUT_OF_HOST_CAPACITY', 'ERROR']:
         count = status_counts.get(status, 0)
         bar = '█' * int(count * bar_width / max_count) if max_count > 0 else ''
         print(f"{status:<22} {count:>3} {bar}")
@@ -296,12 +314,13 @@ def main():
     console = Console()
     args = parse_arguments()
     machine_output = args.output_format in ('json', 'csv')
+    is_flex = 'Flex' in args.shape or 'flex' in args.shape
 
     if not machine_output:
         clear()
         print(green(f"\n{'*'*94}"))
-        print_info(green, 'Command', f"python {sys.argv[0]} {sys.argv[1:]}", len(f"python {sys.argv[0]} {sys.argv[1:]}"))
-        print_info(green, 'Script', 'version', len('version'))
+        print_info(green, 'Command', shlex.join(['python', *sys.argv]))
+        print_info(green, 'Version', VERSION)
 
     output_context = redirect_stdout(sys.stderr) if machine_output else nullcontext()
     with output_context:
@@ -316,9 +335,12 @@ def main():
         print("\r" + " " * 60 + "\r", end='', flush=True)
 
         if not machine_output:
-            print_info(green, 'Login', 'success', len('success'))
-            print_info(green, 'Login', 'profile', len(details))
-            print_info(green, 'Tenancy', tenancy.name, len(f'home region: {tenancy.home_region_key}'))
+            print_info(green, 'Login', 'success')
+            print_info(green, 'Auth method', auth_name)
+            if auth_name == 'config_file':
+                print_info(green, 'Profile', details)
+            print_info(green, 'Tenancy', tenancy.name)
+            print_info(green, 'Home region', tenancy.home_region_key)
 
         # Initialize identity client
         identity_client = oci.identity.IdentityClient(config=config, signer=signer)
@@ -331,14 +353,15 @@ def main():
         )
 
         if not machine_output:
-            print_info(green, 'Shape', 'analyzed', len('analyzed'))
-            if 'Flex' in args.shape or 'flex' in args.shape:
-                print_info(green, 'OCPUs', 'amount', len(f'{args.ocpu} cores'))
-                print_info(green, 'Memory', 'amount', len(f'{args.memory} GB'))
+            print_info(green, 'Shape', args.shape)
+            if is_flex:
+                print_info(green, 'OCPUs', f'{args.ocpu} cores')
+                print_info(green, 'Memory', f'{args.memory} GB')
+            if args.available_only:
+                print_info(green, 'Filter', 'available only')
 
             print(green(f"{'*'*94}\n"))
 
-    is_flex = 'Flex' in args.shape or 'flex' in args.shape
     rows = []
 
     try:
@@ -360,17 +383,23 @@ def main():
         print("Check shape names: https://docs.oracle.com/en-us/iaas/Content/Compute/References/computeshapes.htm", file=sys.stderr)
         raise SystemExit(1)
 
+    # Filter presentation only; exit codes continue to use every API result.
+    display_rows = (
+        [row for row in rows if row['status'] == 'AVAILABLE']
+        if args.available_only else rows
+    )
+
     if args.output_format == 'json':
-        render_json(rows)
+        render_json(display_rows)
     elif args.output_format == 'csv':
-        render_csv(rows)
+        render_csv(display_rows)
     elif args.output_format == 'simple':
-        if rows:
-            render_ascii_chart(rows)
+        if display_rows:
+            render_ascii_chart(display_rows)
         else:
             print("No results to display.")
     else:
-        render_table(console, rows, args.shape, args.ocpu, args.memory)
+        render_table(console, display_rows, args.shape, args.ocpu, args.memory, is_flex)
 
     raise SystemExit(get_exit_code(rows))
 

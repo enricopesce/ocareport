@@ -2,6 +2,7 @@
 """Utility functions for terminal output and colors."""
 
 import os
+import textwrap
 
 
 class Color:
@@ -36,10 +37,20 @@ def clear():
         pass
 
 
-def print_info(color, v1, v2, v3):
-    """Print formatted info line."""
-    align = '<35' if isinstance(v3, int) else '35'
-    print(color(f"{'*'*5:10} {v1:20} {v2:20} {v3:{align}} {'*'*5:5}"))
+def print_info(color, label, value, width=94):
+    """Print one consistently aligned summary row, wrapping long values."""
+    label_width = 14
+    value_width = width - 27
+    value_lines = textwrap.wrap(
+        str(value),
+        width=value_width,
+        break_long_words=True,
+        break_on_hyphens=False,
+    ) or ['']
+
+    for index, line in enumerate(value_lines):
+        row_label = label if index == 0 else ''
+        print(color(f"{'*' * 5} {row_label:<{label_width}} {line:<{value_width}} {'*' * 5}"))
 
 
 def print_error(*args, color=None):

@@ -190,37 +190,49 @@ def authenticate_instance_principals(auth_errors):
 
 def get_region_subscription_list(identity_client, tenancy_id, target_region):
     """
-    Get the subscribed region to analyze.
+    Get the subscribed regions to analyze.
 
     - If target_region is empty: returns home region only
-    - Otherwise: returns the specified region if subscribed
+    - Otherwise: returns each specified region if subscribed
     """
     try:
         print(yellow("\r => Loading regions..."), end=' ' * 30 + '\r', flush=True)
         subscribed_regions = identity_client.list_region_subscriptions(tenancy_id).data
+        requested_regions = [
+            name.strip() for name in target_region.split(',') if name.strip()
+        ] if target_region else []
 
         # No target specified: return home region
-        if not target_region:
+        if not requested_regions:
             home = next((r for r in subscribed_regions if r.is_home_region), None)
             if home:
-                print_info(green, 'Region', 'analyzed', home.region_name)
+                print_info(green, 'Region', home.region_name)
                 return [home]
+            requested_regions = [target_region]
 
-        # Specific region requested
+        # Match requested names case-insensitively while preserving input order.
         region_map = {r.region_name.lower(): r for r in subscribed_regions}
-        region = region_map.get(target_region.lower())
+        regions = []
+        all_oci_regions = None
+        for target in requested_regions:
+            region = region_map.get(target.lower())
+            if region:
+                print_info(green, 'Region', target)
+                regions.append(region)
+                continue
 
-        if region:
-            print_info(green, 'Region', 'analyzed', target_region)
-            return [region]
+            # Fetch the global region list only when a requested name is unknown.
+            if all_oci_regions is None:
+                all_oci_regions = {
+                    r.name.lower() for r in identity_client.list_regions().data
+                }
+            if target.lower() in all_oci_regions:
+                print_error(f"Region '{target}' is not subscribed")
+            else:
+                print_error(f"Region '{target}' does not exist")
+            raise SystemExit(1)
 
-        # Check if region exists but not subscribed
-        all_oci_regions = {r.name.lower() for r in identity_client.list_regions().data}
-        if target_region.lower() in all_oci_regions:
-            print_error(f"Region '{target_region}' is not subscribed")
-        else:
-            print_error(f"Region '{target_region}' does not exist")
-        raise SystemExit(1)
+        return regions
 
     except oci.exceptions.ServiceError as e:
         print_error("Region error:", str(e))
