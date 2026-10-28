@@ -60,6 +60,21 @@ All API calls are authenticated via the OCI SDK's signer mechanism. The tool sup
 
 ## Use Cases
 
+### Find Available A10 GPU VMs
+
+Search for `VM.GPU.A10.1` GPU capacity across 21 OCI regions. The `-available-only` option shows only locations with `AVAILABLE` status:
+
+```bash
+python ocareport.py -shape VM.GPU.A10.1 \
+  -region eu-frankfurt-1,eu-milan-1,eu-paris-1,uk-london-1 \
+  -region us-ashburn-1,us-chicago-1,us-phoenix-1,us-sanjose-1,ca-toronto-1 \
+  -region ap-melbourne-1,ap-mumbai-1,ap-osaka-1,ap-singapore-1,ap-sydney-1,ap-tokyo-1 \
+  -region il-jerusalem-1,me-dubai-1,me-jeddah-1 \
+  -region mx-monterrey-1,mx-queretaro-1,sa-santiago-1 -available-only
+```
+
+Run this command from the source checkout and use regions subscribed to your tenancy. Shape access and free capacity can change. An `AVAILABLE` result can have an unknown instance count; see [Optional Availability Counts](#optional-availability-counts).
+
 ### Check Compute CPU Capacity
 
 Check a flexible AMD E5 VM with 8 OCPUs and 64 GB memory:
