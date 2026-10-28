@@ -135,6 +135,40 @@ eu-frankfurt-1  AD-1                 FAULT-DOMAIN-3  AVAILABLE  1
 
 Pick `FAULT-DOMAIN-1` or `FAULT-DOMAIN-3` for that deployment.
 
+### Find Available Capacity Across Regions
+
+Check a shape in multiple subscribed regions and show only locations where OCI reports capacity:
+
+```bash
+ocareport -shape VM.GPU.A10.1 \
+  -region eu-frankfurt-1,us-ashburn-1 \
+  -available-only
+```
+
+You can also repeat `-region` instead of using a comma-separated list:
+
+```bash
+ocareport -shape VM.GPU.A10.1 \
+  -region eu-frankfurt-1 -region us-ashburn-1 \
+  -available-only
+```
+
+If you need to check which regions your tenancy is subscribed to, run:
+
+```bash
+oci iam region-subscription list --all
+```
+
+The report has one row per availability domain and fault domain. `AVAILABLE COUNT` is the count for that location; to compare total capacity by region, add the counts for all rows with the same region. Export CSV for aggregation:
+
+```bash
+ocareport -shape VM.GPU.A10.1 \
+  -region eu-frankfurt-1,us-ashburn-1 \
+  -available-only -output csv
+```
+
+Replace the example regions with regions subscribed to your tenancy. The tool checks only the home region when `-region` is omitted.
+
 
 ### Use in CloudShell
 
@@ -272,10 +306,12 @@ For tighter production policies, grant only the minimum read/inspect permissions
 | Argument | Parameter | Description |
 |----------|-----------|-------------|
 | `-shape` | shape_name | Required. Compute shape name to check |
-| `-region` | region_name | Region to analyze. Defaults to home region |
+| `-region` | region_name | Region to analyze; repeat the flag or use comma-separated names. Defaults to home region |
 | `-ocpus` | number | OCPU count for flex shapes. Default: `1` |
 | `-memory` | number | Memory in GB for flex shapes. Default: `1` |
-| `-output` | `table`, `json`, `csv` | Output format. Default: `table` |
+| `-output` | `table`, `json`, `csv`, `simple` | Output format. Default: `table` |
+| `-available-only` | — | Display only rows with `AVAILABLE` status |
+| `-v`, `--verbose` | — | Print the command and request summary before results |
 | `-auth` | `cs`, `cf`, `ip` | Force a specific authentication method |
 | `-config_file` | path | Path to OCI config file. Default: `~/.oci/config` |
 | `-profile` | name | Config file profile section. Default: `DEFAULT` |
