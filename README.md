@@ -159,7 +159,7 @@ If you need to check which regions your tenancy is subscribed to, run:
 oci iam region-subscription list --all
 ```
 
-The report has one row per availability domain and fault domain. When OCI returns `available_count`, it is the number of new instances for that location. OCI can omit this optional field; in that case the table shows `N/A`, while JSON/CSV contain a null or empty value. `AVAILABLE` confirms capacity is available but does not reveal its exact count. Add counts by region only when OCI returned numbers for all relevant rows. Export CSV for aggregation:
+The report has one row per availability domain and fault domain. **OCI can return `AVAILABLE` without reporting how many instances are available.** The `available_count` field is optional; see [Optional Availability Counts](#optional-availability-counts) for the meaning of missing values. Add counts by region only when OCI returned numbers for all relevant rows. Export CSV for aggregation:
 
 ```bash
 ocareport -shape VM.GPU.A10.1 \
@@ -324,6 +324,20 @@ For tighter production policies, grant only the minimum read/inspect permissions
 | `HARDWARE_NOT_SUPPORTED` | Required hardware is not deployed in that location |
 | `OUT_OF_HOST_CAPACITY` | Hardware exists, but OCI reports no current host capacity |
 | `ERROR` | An API error occurred for that availability domain; other ADs continue |
+
+### Optional Availability Counts
+
+OCI's [`availableCount` field is optional](https://docs.oracle.com/en-us/iaas/tools/typescript/latest/modules/_core_lib_model_capacity_report_shape_availability_.capacityreportshapeavailability.html). A response can report `AVAILABLE` while leaving the count null. This means OCI reports available capacity, but the number of instances is unknown. It must not be interpreted as zero or an exact quantity.
+
+| Table value | Meaning |
+|-------------|---------|
+| A number, including `0` | OCI returned that count for the requested shape configuration and location |
+| `N/A` | OCI returned `AVAILABLE` without a count |
+| `-` | The count is missing for another status, including errors |
+
+Missing counts remain `null` in JSON and empty in CSV. Availability counts can be provided in one region and omitted in another. When counts are missing, the report can identify available locations but cannot rank regions by their exact number of available instances.
+
+The `-available-only` option filters by `AVAILABLE` status. It can therefore include rows whose count is `N/A`.
 
 ## Common Compute CPU Shapes
 
