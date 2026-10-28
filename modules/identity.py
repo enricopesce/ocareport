@@ -94,11 +94,25 @@ def authenticate_cloud_shell(auth_errors):
         tenancy_id = config['tenancy']
 
         delegation_token_file = config.get('delegation_token_file')
-        with open(delegation_token_file, 'r') as f:
-            delegation_token = f.read().strip()
+        if delegation_token_file is None:
+            auth_errors['CloudShell'] = "Delegation token file not configured"
+            return None, None, None, None, None, None
+        try:
+            with open(delegation_token_file, 'r') as f:
+                delegation_token = f.read().strip()
+            if not delegation_token:
+                auth_errors['CloudShell'] = "Delegation token file is empty"
+                return None, None, None, None, None, None
+        except FileNotFoundError:
+            auth_errors['CloudShell'] = f"Delegation token file not found: {delegation_token_file}"
+            return None, None, None, None, None, None
+        except Exception as e:
+            auth_errors['CloudShell'] = f"Cannot read delegation token file: {e}"
+            return None, None, None, None, None, None
 
         signer = oci.auth.signers.InstancePrincipalsDelegationTokenSigner(
-            delegation_token=delegation_token
+            delegation_token=delegation_token,
+            retry_strategy=custom_retry_strategy
         )
 
         # Validate by fetching tenancy

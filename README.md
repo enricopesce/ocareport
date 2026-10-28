@@ -29,12 +29,64 @@ cd ocareport
 pip install -e .
 ```
 
+## OCI APIs Used
+
+`ocareport` queries several OCI APIs via the OCI Python SDK (v2.189.0) to produce the capacity report. Each API is called through the SDK's `oci` module and requires a valid OCI user with read permissions on the tenancy.
+
+### 1. OCI Compute Capacity Report API
+- **Endpoint**: `POST /opc/v2/compute/capacity-report`
+- **SDK call**: `oci.core.ComputeClient.create_compute_capacity_report(...)`
+- **Purpose**: Check compute shape availability across regions, availability domains, and fault domains
+- **Key operations**:
+  - `CreateCapacityReportDetails` — builds the request body for the capacity report
+  - `CreateCapacityReportShapeAvailabilityDetails` — defines the shape config (OCPUs, memory) and fault domain for the report
+  - `CreateCapacityReport` — executes the report query
+- **Response**: `shape_availabilities` array, each with `availability_status`
+- **Statuses returned**: `AVAILABLE`, `HARDWARE_NOT_SUPPORTED`, `OUT_OF_HOST_CAPACITY`, `ERROR`
+- **Auth**: Requires a valid OCI user with read permissions on the tenancy
+
+### 2. OCI Identity API
+- **Endpoint**: `GET /opc/v2/identity/tenancy` (via `IdentityClient.get_tenancy`)
+- **Purpose**: Fetch the tenancy's home region and validate the signer's tenancy
+- **Used by**: `authenticate_cloud_shell` and `authenticate_instance_principals` to validate the signer's tenancy
+
+### 3. OCI Config API
+- **Endpoint**: `GET /config` (via `oci.config.from_file`)
+- **Purpose**: Read the OCI config file (`~/.oci/config`) containing user, fingerprint, tenancy, region, and key file
+- **Used by**: `authenticate_config_file` to load credentials
+
+### 4. OCI Tenancy API
+- **Endpoint**: `GET /tenancy` (via `IdentityClient.get_tenancy`)
+- **Purpose**: Retrieve the tenancy's home region and other metadata
+- **Used by**: `authenticate_cloud_shell` and `authenticate_instance_principals` to validate the signer's tenancy
+
+### 5. OCI Region API
+- **Endpoint**: `GET /regions` (via `IdentityClient.list_region_subscriptions`)
+- **Purpose**: List the regions where the tenancy is subscribed
+- **Used by**: `get_region_subscription_list` to determine which regions to query
+
+### 6. OCI Availability Domain API
+- **Endpoint**: `GET /availability-domains` (via `IdentityClient.list_availability_domains`)
+- **Purpose**: List the availability domains within a region
+- **Used by**: `get_availability_domains` to enumerate ADs for the region
+
+### 7. OCI Fault Domain API
+- **Endpoint**: `GET /fault-domains` (via `IdentityClient.list_fault_domains`)
+- **Purpose**: List the fault domains within an availability domain
+- **Used by**: `get_fault_domains` to enumerate FD options for the shape
+
+### Authentication
+All API calls are authenticated via the OCI SDK's signer mechanism. The tool supports three auth methods:
+1. **CloudShell** — delegation token from the OCI CloudShell environment
+2. **Config File** — local `~/.oci/config` with user credentials
+3. **Instance Principals** — OCI compute instance identity (requires running on an OCI compute instance)
+
 ## What It Answers
 
 - **Where can I launch this compute shape?**
 - **Which Fault Domain should I choose for a deploy?**
 - **Can I run a capacity check directly from CloudShell?**
-- **How many matching instances does OCI report as available?**
+- **How many matching instances does OCI report as available?****
 
 ## Use Cases
 

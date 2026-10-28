@@ -67,7 +67,7 @@ def parse_arguments():
                         help='Memory in GB for flex shapes (default: 1)')
     parser.add_argument('-output', default='table', dest='output_format',
                         choices=['table', 'json', 'csv'],
-                        help='Output format: table, json, or csv (default: table)')
+                        help='Output format: table, json, csv, or simple (default: table)')
 
     return parser.parse_args()
 
@@ -275,6 +275,22 @@ def render_csv(rows):
     writer.writerows(rows)
 
 
+def render_ascii_chart(rows):
+    """Render a simple ASCII bar chart of status distribution for simple text terminals."""
+    status_counts = Counter(row['status'] for row in rows)
+
+    max_count = max(status_counts.values()) if status_counts else 0
+    bar_width = 40
+
+    print("Availability Status Distribution:")
+    print("-" * 50)
+    for status in ['AVAILABLE', 'HARDWARE_NOT_SUPPORTED', 'OUT_OF_HOST_CAPACITY']:
+        count = status_counts.get(status, 0)
+        bar = '█' * int(count * bar_width / max_count) if max_count > 0 else ''
+        print(f"{status:<22} {count:>3} {bar}")
+    print("-" * 50)
+
+
 def main():
     """Main entry point."""
     console = Console()
@@ -284,7 +300,8 @@ def main():
     if not machine_output:
         clear()
         print(green(f"\n{'*'*94}"))
-        print_info(green, 'Script', 'version', VERSION)
+        print_info(green, 'Command', f"python {sys.argv[0]} {sys.argv[1:]}", len(f"python {sys.argv[0]} {sys.argv[1:]}"))
+        print_info(green, 'Script', 'version', len('version'))
 
     output_context = redirect_stdout(sys.stderr) if machine_output else nullcontext()
     with output_context:
@@ -299,9 +316,9 @@ def main():
         print("\r" + " " * 60 + "\r", end='', flush=True)
 
         if not machine_output:
-            print_info(green, 'Login', 'success', auth_name)
-            print_info(green, 'Login', 'profile', details)
-            print_info(green, 'Tenancy', tenancy.name, f'home region: {tenancy.home_region_key}')
+            print_info(green, 'Login', 'success', len('success'))
+            print_info(green, 'Login', 'profile', len(details))
+            print_info(green, 'Tenancy', tenancy.name, len(f'home region: {tenancy.home_region_key}'))
 
         # Initialize identity client
         identity_client = oci.identity.IdentityClient(config=config, signer=signer)
@@ -314,10 +331,10 @@ def main():
         )
 
         if not machine_output:
-            print_info(green, 'Shape', 'analyzed', args.shape)
+            print_info(green, 'Shape', 'analyzed', len('analyzed'))
             if 'Flex' in args.shape or 'flex' in args.shape:
-                print_info(green, 'OCPUs', 'amount', f'{args.ocpu} cores')
-                print_info(green, 'Memory', 'amount', f'{args.memory} GB')
+                print_info(green, 'OCPUs', 'amount', len(f'{args.ocpu} cores'))
+                print_info(green, 'Memory', 'amount', len(f'{args.memory} GB'))
 
             print(green(f"{'*'*94}\n"))
 
@@ -347,6 +364,11 @@ def main():
         render_json(rows)
     elif args.output_format == 'csv':
         render_csv(rows)
+    elif args.output_format == 'simple':
+        if rows:
+            render_ascii_chart(rows)
+        else:
+            print("No results to display.")
     else:
         render_table(console, rows, args.shape, args.ocpu, args.memory)
 
