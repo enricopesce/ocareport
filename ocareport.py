@@ -260,13 +260,15 @@ def render_table(console, rows, shape, ocpu, memory, is_flex=False):
             style = 'red'
 
         available_count = row['available_count']
+        if available_count is None:
+            available_count = 'N/A' if status == 'AVAILABLE' else '-'
         table.add_row(
             row['region'],
             row['availability_domain'],
             row['fault_domain'],
             row['shape'],
             status,
-            '-' if available_count is None else str(available_count),
+            str(available_count),
             row['message'],
             style=style
         )
@@ -352,7 +354,8 @@ def main():
         regions = get_region_subscription_list(
             identity_client,
             tenancy_id,
-            args.region
+            args.region,
+            verbose=args.verbose
         )
 
         if args.verbose:

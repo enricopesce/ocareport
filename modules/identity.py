@@ -188,7 +188,7 @@ def authenticate_instance_principals(auth_errors):
         return None, None, None, None, None, None
 
 
-def get_region_subscription_list(identity_client, tenancy_id, target_region):
+def get_region_subscription_list(identity_client, tenancy_id, target_region, verbose=False):
     """
     Get the subscribed regions to analyze.
 
@@ -206,7 +206,8 @@ def get_region_subscription_list(identity_client, tenancy_id, target_region):
         if not requested_regions:
             home = next((r for r in subscribed_regions if r.is_home_region), None)
             if home:
-                print_info(green, 'Region', home.region_name)
+                if verbose:
+                    print_info(green, 'Region', home.region_name)
                 return [home]
             requested_regions = [target_region]
 
@@ -217,7 +218,8 @@ def get_region_subscription_list(identity_client, tenancy_id, target_region):
         for target in requested_regions:
             region = region_map.get(target.lower())
             if region:
-                print_info(green, 'Region', target)
+                if verbose:
+                    print_info(green, 'Region', target)
                 regions.append(region)
                 continue
 

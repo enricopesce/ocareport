@@ -159,7 +159,7 @@ If you need to check which regions your tenancy is subscribed to, run:
 oci iam region-subscription list --all
 ```
 
-The report has one row per availability domain and fault domain. `AVAILABLE COUNT` is the count for that location; to compare total capacity by region, add the counts for all rows with the same region. Export CSV for aggregation:
+The report has one row per availability domain and fault domain. When OCI returns `available_count`, it is the number of new instances for that location. OCI can omit this optional field; in that case the table shows `N/A`, while JSON/CSV contain a null or empty value. `AVAILABLE` confirms capacity is available but does not reveal its exact count. Add counts by region only when OCI returned numbers for all relevant rows. Export CSV for aggregation:
 
 ```bash
 ocareport -shape VM.GPU.A10.1 \
