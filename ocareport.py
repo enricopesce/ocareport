@@ -78,6 +78,8 @@ def parse_arguments():
     parser.add_argument('-available-only', '-available_only', action='store_true',
                         dest='available_only',
                         help='Only display results where the requested capacity is available')
+    parser.add_argument('-v', '--verbose', action='store_true',
+                        help='Print the command and request summary before the results')
 
     args = parser.parse_args()
     # Repeated flags and comma-separated input share one string-based region path.
@@ -316,14 +318,15 @@ def main():
     machine_output = args.output_format in ('json', 'csv')
     is_flex = 'Flex' in args.shape or 'flex' in args.shape
 
-    if not machine_output:
-        clear()
-        print(green(f"\n{'*'*94}"))
-        print_info(green, 'Command', shlex.join(['python', *sys.argv]))
-        print_info(green, 'Version', VERSION)
-
     output_context = redirect_stdout(sys.stderr) if machine_output else nullcontext()
     with output_context:
+        if args.verbose:
+            if not machine_output:
+                clear()
+            print(green(f"\n{'*'*94}"))
+            print_info(green, 'Command', shlex.join(['python', *sys.argv]))
+            print_info(green, 'Version', VERSION)
+
         # Initialize authentication
         config, signer, tenancy, auth_name, details, tenancy_id = init_authentication(
             args.auth_method,
@@ -334,7 +337,7 @@ def main():
         # Clear any auth progress messages
         print("\r" + " " * 60 + "\r", end='', flush=True)
 
-        if not machine_output:
+        if args.verbose:
             print_info(green, 'Login', 'success')
             print_info(green, 'Auth method', auth_name)
             if auth_name == 'config_file':
@@ -352,7 +355,7 @@ def main():
             args.region
         )
 
-        if not machine_output:
+        if args.verbose:
             print_info(green, 'Shape', args.shape)
             if is_flex:
                 print_info(green, 'OCPUs', f'{args.ocpu} cores')
